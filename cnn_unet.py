@@ -272,7 +272,7 @@ class Trainer(object):
         if not restore:
             if os.path.exists(prediction_path_abs):
                 logging.info("Removing '{:}'".format(prediction_path_abs))
-                shutil.rmtree(os.path.abspath(prediction_path_abs), ignore_errors=True)
+                shutil.rmtree(prediction_path_abs, ignore_errors=True)
             if os.path.exists(output_path_abs):
                 logging.info("Removing '{:}'".format(output_path_abs))
                 shutil.rmtree(output_path_abs, ignore_errors=True)

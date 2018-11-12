@@ -50,9 +50,14 @@ def get_image_summary(img, idx=0):
     V = tf.reshape(V, tf.stack((-1, img_w, img_h, 1)))
     return V
 
-#TODO; (dtomar) When Mri images available change the following to grey scale images
+
+def get_abs(img):
+    return np.sqrt(img[:,:,0]**2 + img[:,:,1]**2)
+
 def save_predictions(input_image, ground_truth, prediction, folder):
     for image_iter in range(input_image.shape[0]):
-        img = np.concatenate((input_image[image_iter], ground_truth[image_iter], prediction[image_iter]), axis=1)
+        img = np.concatenate((get_abs(input_image[image_iter]),
+                              get_abs(ground_truth[image_iter]),
+                              get_abs(prediction[image_iter])), axis=1)
         img = np.clip(img, 0, 1)
-        io.imsave(os.path.join(folder, str(image_iter) + '.jpg'), img)
+        io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)

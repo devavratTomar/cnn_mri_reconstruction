@@ -7,10 +7,6 @@ import os
 import random
 import numpy as np
 
-#TODO: (dtomar) remove skimage when mri dataset is available
-from skimage import io
-from skimage import transform
-
 class DataProvider(object):
     """
     Loads the data into memory and provides an iterator for accessing the data
@@ -32,8 +28,15 @@ class DataProvider(object):
         self.data_size = len(self.file_names)
         
     def get_sample_images(self, number_images):
-        images = np.array([transform.resize(io.imread(file_name), (240, 320)) for file_name in self.file_names[:number_images]])
-        return images, images
+        images_input = []
+        images_output = []
+        
+        for file_name in self.file_names[:number_images]:
+            _data = np.load(file_name)
+            images_input.append(_data[:,:, [2, 3]])
+            images_output.append(_data[:,:, [0, 1]])
+            
+        return np.array(images_input), np.array(images_output)
     
     def get_images_iter(self, batch_size):
         """
@@ -45,6 +48,11 @@ class DataProvider(object):
             # first shuffle the file names so that in every epoch we get different combinations.
             random.shuffle(self.file_names)
             for i in range(n_batches):
+                images_input = []
+                images_output = []
                 batch_names = self.file_names[(batch_size*i):(batch_size*(i+1))]
-                images = np.array([transform.resize(io.imread(file_name), (240, 320)) for file_name in batch_names])
-                yield images, images
+                for file_name in batch_names:
+                    _data = np.load(file_name)
+                    images_input.append(_data[:,:, [2, 3]])
+                    images_output.append(_data[:,:, [0, 1]])
+                yield np.array(images_input), np.array(images_output)
