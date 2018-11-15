@@ -56,3 +56,15 @@ class DataProvider(object):
                     images_input.append(_data[:,:, [2, 3]])
                     images_output.append(_data[:,:, [0, 1]])
                 yield np.array(images_input), np.array(images_output)
+                
+    def get_sample_images_with_mask(self, number_images):
+        images_input = []
+        images_output = []
+        mask_input = []
+        
+        for file_name in self.file_names[:number_images]:
+            _data = np.load(file_name)
+            images_input.append(_data[:,:, [2, 3]])
+            images_output.append(_data[:,:, [0, 1]])
+            mask_input.append(_data[:,:, [4, 5]])
+        return np.array(images_input), np.array(images_output), np.array(mask_input)
