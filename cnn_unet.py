@@ -12,7 +12,7 @@ import shutil
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, filter_size=3, pool_size=2, create_summary=True):
+def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, filter_size=5, pool_size=2, keep_prob, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 4 channels.
@@ -65,8 +65,8 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, fi
             b1 = utils.bias_variable([features], "b1")
             b2 = utils.bias_variable([features], "b2")
             
-            conv_1 = utils.conv2d(input_node, w1, b1)
-            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2)
+            conv_1 = utils.conv2d(input_node, w1, b1, keep_prob)
+            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2, keep_prob)
             dw_h_convs[layer] = tf.nn.relu(conv_2)
             
             weights.append((w1, w2))
@@ -95,12 +95,12 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, fi
             deconv[layer] = h_deconv_concat
             
             w1 = utils.weight_variable([filter_size, filter_size, features, features//2], std_dev, "w1")
-            w2 = utils.weight_variable([filter_size, filter_size, features//2, features//2], std_dev, "w2") # should the second term be //4?
+            w2 = utils.weight_variable([filter_size, filter_size, features//2, features//2], std_dev, "w2")
             b1 = utils.bias_variable([features//2], "b1")
-            b2 = utils.bias_variable([features//2], "b2") #//4?
+            b2 = utils.bias_variable([features//2], "b2")
             
-            conv_1 = utils.conv2d(h_deconv_concat, w1, b1)
-            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2)
+            conv_1 = utils.conv2d(h_deconv_concat, w1, b1, keep_prob)
+            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2, keep_prob)
             
             input_node = tf.nn.relu(conv_2)
             up_h_convs[layer] = input_node
@@ -113,7 +113,7 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, fi
     with tf.name_scope("output_image"):
         weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
         bias = utils.bias_variable([channels_y], "out_bias")
-        output_image = utils.conv2d(input_node, weight, bias)
+        output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0))
         up_h_convs["out"] = output_image
     
     
@@ -161,6 +161,7 @@ class CnnUnet(object):
         
         self.x = tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
         self.y = tf.placeholder("float", shape=[None, None, None, y_channels], name="y")
+        self.keep_prob = tf.placeholder("float", name="dropout_probability")
         
         self.x_channels = x_channels
         self.y_channels = y_channels
@@ -171,6 +172,7 @@ class CnnUnet(object):
                                                            channels_y= y_channels,
                                                            layers= layers,
                                                            feature_base= feature_base,
+                                                           keep_prob=self.keep_prob,
                                                            create_summary= create_summary)
         
         self.cost = self.__get_cost(output_image)
@@ -197,7 +199,7 @@ class CnnUnet(object):
             self.restore(sess, model_path)
             
             y_dummy = np.empty((test_image.shape[0], test_image.shape[1], test_image.shape[2], self.y_channels))
-            prediction = sess.run(self.predictor, feed_dict={self.x: test_image, self.y: y_dummy})
+            prediction = sess.run(self.predictor, feed_dict={self.x: test_image, self.y: y_dummy, self.keep_prob: 1.0})
             
         return prediction
     
@@ -287,9 +289,9 @@ class Trainer(object):
             
         return init
     
-    def store_prediction(self, sess, batch_x, batch_y, name):
-        prediction = sess.run(self.net.predictor, feed_dict= {self.net.x: batch_x, self.net.y: batch_y})
-        loss = sess.run(self.net.cost, feed_dict= {self.net.x: batch_x, self.net.y: batch_y})
+    def store_prediction(self, sess, batch_x, batch_y, masks, name):
+        prediction = sess.run(self.net.predictor, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: 1.})
+        loss = sess.run(self.net.cost, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: 1.})
         
         logging.info("Validaiton loss = {:.4f}".format(loss))
         
@@ -299,27 +301,28 @@ class Trainer(object):
             shutil.rmtree(prediction_folder, ignore_errors=True)
             
         os.mkdir(prediction_folder)
-        utils.save_predictions(batch_x, batch_y, prediction, prediction_folder)
+        utils.save_predictions(batch_x, batch_y, prediction, masks, prediction_folder)
         
     
     def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
         # Calculate batch loss and accuracy
         summary_str, loss, predictions = sess.run((self.summary_all, self.net.cost, self.net.predictor),
-                                                  feed_dict={self.net.x: batch_x, self.net.y: batch_y})
+                                                  feed_dict={self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: 1.})
         
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
-        logging.info("Iter {:}, Minibatch Loss= {:.8f}".format(step, loss))
+        logging.info("Iter {:}, Minibatch Loss= {:.16f}".format(step, loss))
         
         
     def output_epoch_stats(self, epoch, loss, lr):
         logging.info(
-            "Epoch {:}, loss: {:.4f}, learning rate: {:.8f}".format(epoch, loss, lr))
+            "Epoch {:}, loss: {:.16f}, learning rate: {:.8f}".format(epoch, loss, lr))
 
     
     def train(self, data_provider_train, data_provider_validation,
               output_path,
-              epochs=100,
+              keep_prob,
+              epochs=10,
               display_step=1,
               restore=False,
               write_graph=True,
@@ -352,26 +355,29 @@ class Trainer(object):
                 if ckpt and ckpt.model_checkpoint_path:
                     self.net.restore(sess, ckpt.model_checkpoint_path)
                     
-            test_x, test_y = data_provider_validation(self.validation_batch_size)
-            self.store_prediction(sess, test_x, test_y, "_init")
+            test_x, test_y, masks = data_provider_validation(self.validation_batch_size)
+            self.store_prediction(sess, test_x, test_y, masks, "_init")
             
             summary_writer = tf.summary.FileWriter(output_path, graph=sess.graph)
             logging.info("Training Started")
             
+            step_counter = 0
             for epoch in range(epochs):
+                print(epoch)
                 for step, (batch_x, batch_y) in enumerate(data_provider_train(self.batch_size)):
                     _, loss, lr, gradients = sess.run((self.optimizer, self.net.cost, self.learning_rate_node, self.net.gradients_node),
-                                                      feed_dict= {self.net.x: batch_x, self.net.y: batch_y})
+                                                      feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: keep_prob})
                     
                     if self.net.create_summary and self.create_train_summary:
                         gradients_norm = [np.linalg.norm(gradient) for gradient in gradients]
                         self.norm_gradients_node.assign(gradients_norm).eval()
                         
                     if step % display_step == 0:
-                        self.output_minibatch_stats(sess, summary_writer, step, batch_x, batch_y)
+                        self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y)
+                    step_counter +=1
                         
                 self.output_epoch_stats(epoch, loss, lr)
-                self.store_prediction(sess, test_x, test_y, "epoch_{}".format(epoch))
+                self.store_prediction(sess, test_x, test_y, masks, "epoch_{}".format(epoch))
                 save_path = self.net.save(sess, save_path)
             
             summary_writer.close()

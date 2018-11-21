@@ -1,4 +1,6 @@
 /__pycache__/*
 /output*/*
 /prediction*/*
+/data_original/*
+/data/*
 .vscode
