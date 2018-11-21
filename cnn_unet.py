@@ -12,7 +12,7 @@ import shutil
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, filter_size=5, pool_size=2, keep_prob, create_summary=True):
+def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, filter_size=5, pool_size=2, keep_prob=0.8, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 4 channels.

@@ -11,4 +11,5 @@ trainer = Trainer(u_net, batch_size=5, validation_batch_size=50)
 trainer.train(data_provider_train.get_images_iter,
               data_provider_test.get_sample_images,
               'output',
+              0.8,
               N_EPOCHS)
