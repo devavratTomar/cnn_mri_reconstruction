@@ -183,7 +183,7 @@ class CnnUnet(object):
     
     def __get_cost(self, output_image, regulizer=0):
         with tf.name_scope("cost"):
-            loss = tf.losses.mean_squared_error(self.y, output_image, reduction=tf.losses.Reduction.SUM_OVER_BATCH_SIZE)
+            loss = tf.losses.mean_squared_error(self.y, output_image, reduction=tf.losses.Reduction.SUM_BY_NONZERO_WEIGHTS)
             if regulizer !=0:
                 regularizers = sum([tf.nn.l2_loss(variable) for variable in self.variables])
                 loss += regulizer*regularizers
