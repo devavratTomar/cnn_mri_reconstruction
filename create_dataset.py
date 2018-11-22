@@ -35,7 +35,6 @@ def create_input_image(image, mask):
     out = mask*image_fft    
     return np.fft.ifft2(np.fft.fftshift(out))
 
-
 def create_output_image(image, mask, lambda_):
     image_fft = np.fft.fftshift(np.fft.fft2(image))
     image_output_fft = ((lambda_)*mask + np.ones_like(mask))*image_fft
@@ -59,9 +58,11 @@ def process_save_mat_data(images, output_folder, keep_mask_ratios, prefix_output
             logging.info("Generating data for image: {nbr}, mask:{mask}, at path: {output_folder}".format(nbr=it,
                          mask=mask_ratio, output_folder=output_folder))
             for it_gen in range(IMAGES_GEN):
-                input_image = np.copy(images[it, :, :])
-                output_image = create_output_image(input_image, mask, 2)
-                input_image = create_input_image(input_image, mask)
+                output_image = np.copy(images[it, :, :])
+                input_image = create_input_image(output_image, mask)
+                
+                input_image = input_image/np.max(np.abs(input_image))
+                
                 save_data_image = np.zeros((N, N, 5))
                 save_data_image[:,:,0] = np.real(input_image)
                 save_data_image[:,:,1] = np.imag(input_image)
@@ -76,5 +77,5 @@ data_2 = load_mat_data('./data_original/test.mat')
 data_net = np.concatenate((data_1, data_2), axis=0)
 n_train = int(TRAIN_SPLIT*data_net.shape[0])
 
-process_save_mat_data(data_net[:n_train], './data/train', [0.1, 0.2], 'train')
-process_save_mat_data(data_net[n_train:], './data/test', [0.1, 0.2], 'test')
+process_save_mat_data(data_net[:2], './data/train', [0.1, 0.2], 'train')
+process_save_mat_data(data_net[2:4], './data/test', [0.1, 0.2], 'test')

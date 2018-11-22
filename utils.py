@@ -78,9 +78,9 @@ def save_predictions(input_image, ground_truth, prediction, masks, folder):
         img = np.clip(img, 0, 1)
         io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)
         
-        img_ac = np.concatenate(get_actual_img(ground_truth[image_iter], prediction[image_iter], masks[image_iter]), axis=1)
-        img_ac = np.clip(img_ac, 0, 1)
-        io.imsave(os.path.join(folder, str(image_iter) + '_actual_' + '.png'), img_ac)
+#        img_ac = np.concatenate(get_actual_img(ground_truth[image_iter], prediction[image_iter], masks[image_iter]), axis=1)
+#        img_ac = np.clip(img_ac, 0, 1)
+#        io.imsave(os.path.join(folder, str(image_iter) + '_actual_' + '.png'), img_ac)
                 
 def save_predictions_after_transform(input_image, ground_truth, prediction, mask, lambda_, folder):
     for image_iter in range(input_image.shape[0]):
