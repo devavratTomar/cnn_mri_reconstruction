@@ -77,5 +77,5 @@ data_2 = load_mat_data('./data_original/test.mat')
 data_net = np.concatenate((data_1, data_2), axis=0)
 n_train = int(TRAIN_SPLIT*data_net.shape[0])
 
-process_save_mat_data(data_net[:2], './data/train', [0.1, 0.2], 'train')
-process_save_mat_data(data_net[2:4], './data/test', [0.1, 0.2], 'test')
+process_save_mat_data(data_net[:n_train], './data/train', [0.1, 0.2], 'train')
+process_save_mat_data(data_net[n_train:], './data/test', [0.1, 0.2], 'test')
