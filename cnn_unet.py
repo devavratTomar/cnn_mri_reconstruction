@@ -111,7 +111,7 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=16, fe
     std_dev = np.sqrt(2./(FILTER_SIZE_RECONSTRUCTION*FILTER_SIZE_RECONSTRUCTION*channels_y))
     weight = utils.weight_variable([FILTER_SIZE_RECONSTRUCTION, FILTER_SIZE_RECONSTRUCTION, size_final_input, channels_y], std_dev, "out_weight")
     bias = utils.bias_variable([channels_y], "out_weight")
-    output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0))
+    output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0)), x_image)
     
     weights.append(weight)
     biases.append(bias)  
