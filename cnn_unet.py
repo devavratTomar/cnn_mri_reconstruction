@@ -5,31 +5,28 @@ Implementation of Unet in tensorflow
 import tensorflow as tf
 import utils
 import numpy as np
-from collections import OrderedDict
 import logging
 import os
 import shutil
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, filter_size=5, pool_size=2, keep_prob=0.8, create_summary=True):
+def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=16, feature_reconstruction=16, keep_prob=0.8, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
-    :param channels_x: number of channels in the input image. For Mri, input has 4 channels.
+    :param channels_x: number of channels in the input image. For Mri, input has 2 channels.
     :param channels_y: number of channels in the output image. For Mri, output has 2 channels.
     :param layers: number of layers in u-net architecture.
     :param feature_base: Neurons in first layer of cnn. Next layers have twice the number of neurons in previous layers.
-    :param filter_size: size of convolution filter
-    :param pool_size: size of pooling layer
     :create_summary: Creates Tensorboard summary if True
     """
+    FILTER_SIZE_FEATURES = 3
+    FILTER_SIZE_RECONSTRUCTION = 1
+    RECONSTRUCTION_LAYERS = 2
     
-    logging.info("Layers: {layers}, features: {features}, filter size {fill_size}x{fill_size}, pool size {pool_size}x{pool_size},"
-                 "input channels {in_channels}, output channels {out_channels}".format(
+    logging.info("Layers: {layers}, features: {features}, input channels {in_channels}, output channels {out_channels}".format(
                   layers=layers,
                   features=feature_base,
-                  fill_size=filter_size,
-                  pool_size=pool_size,
                   in_channels=channels_x,
                   out_channels=channels_y))
     
@@ -44,108 +41,89 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, fi
     weights = []
     biases = []
     convs = []
-    pools = OrderedDict()
-    deconv = OrderedDict()
-    dw_h_convs = OrderedDict()
-    up_h_convs = OrderedDict()
+    feature_concat = []
     
-    
-    # down layers
+    # feature extraction layers
     for layer in range(layers):
-        with tf.name_scope("down_conv_layer{}".format(str(layer))):
-            features = (2**layer)*feature_base
-            std_dev = np.sqrt(2./(filter_size*filter_size*features))
+        with tf.name_scope("feature_extraction_layer{}".format(str(layer))):
+            std_dev = np.sqrt(2./(FILTER_SIZE_FEATURES*FILTER_SIZE_FEATURES*feature_base))
             
             if  layer == 0:
-                w1 = utils.weight_variable([filter_size, filter_size, channels_x, features], std_dev, "w1")
+                weight = utils.weight_variable([FILTER_SIZE_FEATURES, FILTER_SIZE_FEATURES, channels_x, feature_base], std_dev, "w1")
             else:
-                w1 = utils.weight_variable([filter_size, filter_size, features//2, features], std_dev, "w1")
+                weight = utils.weight_variable([FILTER_SIZE_FEATURES, FILTER_SIZE_FEATURES, feature_base, feature_base], std_dev, "w1")   
+            
+            bias = utils.bias_variable([feature_base], "b1")
+            conv_layer = utils.conv2d(input_node, weight, bias, keep_prob)
+            conv_layer_activation = tf.nn.relu(conv_layer)
+            
+            feature_concat.append(conv_layer_activation)
+            
+            weights.append(weight)
+            biases.append(bias)
+            convs.append(conv_layer)        
+            input_node = conv_layer_activation
+    
+    # collect all features in a single stack
+    features_concat_all = tf.concat(feature_concat, 3)
+    input_node = features_concat_all
+    size_all_features = len(feature_concat)*feature_base
+    
+    # reconstruction layers
+    for layer in range(RECONSTRUCTION_LAYERS):
+        with tf.name_scope("reconstruction_layer{}".format(str(layer))):
+            
+            if layer == 0:
+                std_dev = np.sqrt(2./(FILTER_SIZE_RECONSTRUCTION*FILTER_SIZE_RECONSTRUCTION*feature_reconstruction))
+                weight = utils.weight_variable([FILTER_SIZE_RECONSTRUCTION, FILTER_SIZE_RECONSTRUCTION, size_all_features, feature_reconstruction], std_dev, "w2")
                 
-            w2 = utils.weight_variable([filter_size, filter_size, features, features], std_dev, "w2")
-            b1 = utils.bias_variable([features], "b1")
-            b2 = utils.bias_variable([features], "b2")
+            else:
+                std_dev = np.sqrt(2./(FILTER_SIZE_FEATURES*FILTER_SIZE_FEATURES*feature_reconstruction))
+                weight = utils.weight_variable([FILTER_SIZE_FEATURES, FILTER_SIZE_FEATURES, feature_reconstruction, feature_reconstruction], std_dev, "w2")
             
-            conv_1 = utils.conv2d(input_node, w1, b1, keep_prob)
-            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2, keep_prob)
-            dw_h_convs[layer] = tf.nn.relu(conv_2)
+            bias = utils.bias_variable([feature_reconstruction], "b1")
+            conv_layer = utils.conv2d(input_node, weight, bias, keep_prob)
+            conv_layer_activation = tf.nn.relu(conv_layer)
             
-            weights.append((w1, w2))
-            biases.append((b1, b2))
-            convs.append((conv_1, conv_2))
+            weights.append(weight)
+            biases.append(bias)
+            convs.append(conv_layer)
             
-            # do max pooling if not the last layer
-            if layer < layers - 1:
-                pools[layer] = utils.max_pool(dw_h_convs[layer], pool_size)
-                input_node = pools[layer]
+            input_node = conv_layer_activation
     
-    input_node = dw_h_convs[layers-1]
+    # bypass reconstruction layer
+    with tf.name_scope("bypass_reconstruction_layer"):
+        std_dev = np.sqrt(2./(FILTER_SIZE_RECONSTRUCTION*FILTER_SIZE_RECONSTRUCTION*feature_reconstruction))
+        weight = utils.weight_variable([FILTER_SIZE_RECONSTRUCTION, FILTER_SIZE_RECONSTRUCTION, size_all_features, feature_reconstruction], std_dev, "w_bypass")
+        bias = utils.bias_variable([feature_reconstruction], "b_bypass")
+        conv_layer = utils.conv2d(features_concat_all, weight, bias, keep_prob)
+        conv_layer_activation = tf.nn.relu(conv_layer)
+        
+        weights.append(weight)
+        biases.append(bias)
+        convs.append(conv_layer)
+        
+        input_node = tf.concat([conv_layer_activation, input_node], 3)
+        
+    # final reconstruction layer
+    size_final_input = 2*feature_reconstruction
     
-    #up layers
-    for layer in range(layers - 2, -1, -1):
-        with tf.name_scope("up_conv_layer{}".format(str(layer))):
-            features = (2**(layer + 1))*feature_base
-            std_dev = np.sqrt(2./(filter_size*filter_size*features))
-            
-            wd = utils.weight_variable_devonc([pool_size, pool_size, features//2, features], std_dev, "wd")
-            bd = utils.bias_variable([features//2], "bd")
-            
-            h_deconv = tf.nn.relu(utils.deconv2d(input_node, wd, pool_size) + bd)
-            h_deconv_concat = tf.concat([dw_h_convs[layer], h_deconv], 3)
-            
-            deconv[layer] = h_deconv_concat
-            
-            w1 = utils.weight_variable([filter_size, filter_size, features, features//2], std_dev, "w1")
-            w2 = utils.weight_variable([filter_size, filter_size, features//2, features//2], std_dev, "w2")
-            b1 = utils.bias_variable([features//2], "b1")
-            b2 = utils.bias_variable([features//2], "b2")
-            
-            conv_1 = utils.conv2d(h_deconv_concat, w1, b1, keep_prob)
-            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2, keep_prob)
-            
-            input_node = tf.nn.relu(conv_2)
-            up_h_convs[layer] = input_node
-            
-            weights.append((w1, w2))
-            biases.append((b1, b2))
-            convs.append((conv_1, conv_2))
-            
-    #Output image
-    with tf.name_scope("output_image"):
-        weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
-        bias = utils.bias_variable([channels_y], "out_bias")
-        output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0))
-        up_h_convs["out"] = output_image
+    std_dev = np.sqrt(2./(FILTER_SIZE_RECONSTRUCTION*FILTER_SIZE_RECONSTRUCTION*channels_y))
+    weight = utils.weight_variable([FILTER_SIZE_RECONSTRUCTION, FILTER_SIZE_RECONSTRUCTION, size_final_input, channels_y], std_dev, "out_weight")
+    bias = utils.bias_variable([channels_y], "out_weight")
+    output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0))
     
+    weights.append(weight)
+    biases.append(bias)  
     
     # Create Summaries
     if create_summary:
         with tf.name_scope("summaries"):
-            for i, (c1, c2) in enumerate(convs):
-                tf.summary.image("summary_conv_{:02}_01".format(i), utils.get_image_summary(c1))
-                tf.summary.image("summary_conv_{:02}_02".format(i), utils.get_image_summary(c2))
-                
-            for k in pools.keys():
-                tf.summary.image("summary_pool_{:02}".format(k), utils.get_image_summary(pools[k]))
-            
-            for k in deconv.keys():
-                tf.summary.image("summary_deconv_concat_{:02}".format(k), utils.get_image_summary(deconv[k]))
-                
-            for k in dw_h_convs.keys():
-                tf.summary.histogram("dw_convolution_{:02}/activations".format(k), dw_h_convs[k])
-
-            for k in up_h_convs.keys():
-                tf.summary.histogram("up_convolution_{}/activations".format(k), up_h_convs[k])
+            for i, conv in enumerate(convs):
+                tf.summary.image("summary_conv_{:02}".format(i), utils.get_image_summary(conv))
     
-    variables = []
-    for w1, w2 in weights:
-        variables.append(w1)
-        variables.append(w2)
-    
-    for b1, b2 in biases:
-        variables.append(b1)
-        variables.append(b2)
-        
-    return output_image, variables
+    variables = weights + biases
+    return output_image, variables 
 
 
 class CnnUnet(object):
@@ -156,7 +134,7 @@ class CnnUnet(object):
     :param y_channels: number of channels in output image
     """
     
-    def __init__(self, x_channels, y_channels, layers, feature_base, create_summary=True):
+    def __init__(self, x_channels, y_channels, layers, feature_base, feature_reconstruction, create_summary=True):
         tf.reset_default_graph()
         
         self.x = tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
@@ -172,6 +150,7 @@ class CnnUnet(object):
                                                            channels_y= y_channels,
                                                            layers= layers,
                                                            feature_base= feature_base,
+                                                           feature_reconstruction= feature_reconstruction,
                                                            keep_prob=self.keep_prob,
                                                            create_summary= create_summary)
         
@@ -183,7 +162,7 @@ class CnnUnet(object):
     
     def __get_cost(self, output_image, regulizer=0):
         with tf.name_scope("cost"):
-            loss = tf.losses.mean_squared_error(self.y, output_image, reduction=tf.losses.Reduction.SUM_OVER_BATCH_SIZE)
+            loss = tf.losses.mean_squared_error(self.y, output_image, reduction=tf.losses.Reduction.SUM_BY_NONZERO_WEIGHTS)
             if regulizer !=0:
                 regularizers = sum([tf.nn.l2_loss(variable) for variable in self.variables])
                 loss += regulizer*regularizers

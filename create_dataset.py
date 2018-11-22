@@ -7,7 +7,7 @@ import logging
 
 MAX_VALUE = 255.
 TRAIN_SPLIT = 0.8
-IMAGES_GEN = 50
+IMAGES_GEN = 20
 
 def create_horizontal_mask(prob_params, N, keep_ratio):
     middle_index = N//2
