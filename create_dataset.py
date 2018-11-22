@@ -53,11 +53,11 @@ def process_save_mat_data(images, output_folder, keep_mask_ratios, prefix_output
     for mask_ratio in keep_mask_ratios:
         out_filename = prefix_output_name + '_Mask_' + str(mask_ratio) + '_image_'
         prob = norm.pdf(np.arange(N), N//2, mask_ratio*(N//2))
-        mask = create_horizontal_custom_mask(prob, N, mask_ratio)
         for it in range(n_images):
             logging.info("Generating data for image: {nbr}, mask:{mask}, at path: {output_folder}".format(nbr=it,
                          mask=mask_ratio, output_folder=output_folder))
             for it_gen in range(IMAGES_GEN):
+                mask = create_horizontal_custom_mask(prob, N, mask_ratio)
                 output_image = np.copy(images[it, :, :])
                 input_image = create_input_image(output_image, mask)
                 
