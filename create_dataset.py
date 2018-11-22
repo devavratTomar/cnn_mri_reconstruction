@@ -1,5 +1,6 @@
 from scipy.io import loadmat
 from scipy.stats import norm
+import scipy.ndimage as ndimage
 import os
 import shutil
 import numpy as np
@@ -42,7 +43,19 @@ def create_output_image(image, mask, lambda_):
 
 def load_mat_data(file_name):
     return loadmat(file_name)['data']/MAX_VALUE
+
+def augment_data(image):
+    # rotate the image by 90 degress
+    image_1 = ndimage.rotate(np.real(image),  90) + 1j*ndimage.rotate(np.imag(image), 90)
+    image_2 = ndimage.rotate(np.real(image), 180) + 1j*ndimage.rotate(np.imag(image), 180)
+    image_3 = ndimage.rotate(np.real(image), 270) + 1j*ndimage.rotate(np.imag(image), 270)
+    image_4 = ndimage.rotate(np.real(image), 360) + 1j*ndimage.rotate(np.imag(image), 360)
     
+    # mirror flipping
+    image_5 = np.flip(image, axis=0)
+    image_6 = np.flip(image, axis=1)    
+    return [image_1, image_2, image_3, image_4, image_5, image_6]
+
 def process_save_mat_data(images, output_folder, keep_mask_ratios, prefix_output_name):
     n_images, N, M = images.shape
     
@@ -56,20 +69,22 @@ def process_save_mat_data(images, output_folder, keep_mask_ratios, prefix_output
         for it in range(n_images):
             logging.info("Generating data for image: {nbr}, mask:{mask}, at path: {output_folder}".format(nbr=it,
                          mask=mask_ratio, output_folder=output_folder))
-            for it_gen in range(IMAGES_GEN):
-                mask = create_horizontal_custom_mask(prob, N, mask_ratio)
-                output_image = np.copy(images[it, :, :])
-                input_image = create_input_image(output_image, mask)
-                
-                input_image = input_image/np.max(np.abs(input_image))
-                
-                save_data_image = np.zeros((N, N, 5))
-                save_data_image[:,:,0] = np.real(input_image)
-                save_data_image[:,:,1] = np.imag(input_image)
-                save_data_image[:,:,2] = np.real(output_image)
-                save_data_image[:,:,3] = np.imag(output_image)
-                save_data_image[:,:,4] = mask
-                np.save(output_folder + '/' + out_filename + str(it) + '_gen_' + str(it_gen), save_data_image)
+            
+            for aug_type , im in enumerate(augment_data(images[it, :, :])):                
+                for it_gen in range(IMAGES_GEN):
+                    mask = create_horizontal_custom_mask(prob, N, mask_ratio)
+                    output_image = np.copy(im)
+                    input_image = create_input_image(output_image, mask)
+                    
+                    input_image = input_image/np.max(np.abs(input_image))
+                    
+                    save_data_image = np.zeros((N, N, 5))
+                    save_data_image[:,:,0] = np.real(input_image)
+                    save_data_image[:,:,1] = np.imag(input_image)
+                    save_data_image[:,:,2] = np.real(output_image)
+                    save_data_image[:,:,3] = np.imag(output_image)
+                    save_data_image[:,:,4] = mask
+                    np.save(output_folder + '/' + out_filename + str(it) + '_aug_'+ str(aug_type) + '_gen_' + str(it_gen), save_data_image)
                 
                 
 data_1 = load_mat_data('./data_original/train.mat')
