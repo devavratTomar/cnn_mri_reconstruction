@@ -113,7 +113,7 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, fi
     with tf.name_scope("output_image"):
         weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
         bias = utils.bias_variable([channels_y], "out_bias")
-        output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0))
+        output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0)), x_image)
         up_h_convs["out"] = output_image
     
     
@@ -244,7 +244,7 @@ class Trainer(object):
     
     def __get_optimizer(self, global_step):
         # we choose adam optimezer for this problem.
-        learning_rate = 0.001
+        learning_rate = 0.0001
         self.learning_rate_node = tf.Variable(learning_rate, name="learning_rate")
         
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node)\
