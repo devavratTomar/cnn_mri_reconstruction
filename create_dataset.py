@@ -3,7 +3,6 @@ from scipy.stats import norm
 import os
 import shutil
 import numpy as np
-import logging
 
 MAX_VALUE = 255.
 TRAIN_SPLIT = 0.8
@@ -56,12 +55,15 @@ def process_save_mat_data(images, output_folder, keep_mask_ratios, prefix_output
         prob = norm.pdf(np.arange(N), N//2, mask_ratio*(N//2))
         mask = create_horizontal_custom_mask(prob, N, mask_ratio)
         for it in range(n_images):
-            logging.info("Generating data for image: {nbr}, mask:{mask}, at path: {output_folder}".format(nbr=it,
-                         mask=mask_ratio, output_folder=output_folder))
+            print("Generating data for image: {nbr}, mask:{mask}, at path: {output_folder}".format(nbr=it,mask=mask_ratio, output_folder=output_folder))
             for it_gen in range(IMAGES_GEN):
                 input_image = np.copy(images[it, :, :])
                 output_image = create_output_image(input_image, mask, 2)
                 input_image = create_input_image(input_image, mask)
+                
+                #scale input image
+                input_image = input_image/np.max(np.abs(input_image))
+		
                 save_data_image = np.zeros((N, N, 5))
                 save_data_image[:,:,0] = np.real(input_image)
                 save_data_image[:,:,1] = np.imag(input_image)

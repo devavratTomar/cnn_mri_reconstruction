@@ -20,9 +20,9 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=16, fe
     :param feature_base: Neurons in first layer of cnn. Next layers have twice the number of neurons in previous layers.
     :create_summary: Creates Tensorboard summary if True
     """
-    FILTER_SIZE_FEATURES = 3
+    FILTER_SIZE_FEATURES = 5
     FILTER_SIZE_RECONSTRUCTION = 1
-    RECONSTRUCTION_LAYERS = 2
+    RECONSTRUCTION_LAYERS = 3
     
     logging.info("Layers: {layers}, features: {features}, input channels {in_channels}, output channels {out_channels}".format(
                   layers=layers,
@@ -111,7 +111,7 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=16, fe
     std_dev = np.sqrt(2./(FILTER_SIZE_RECONSTRUCTION*FILTER_SIZE_RECONSTRUCTION*channels_y))
     weight = utils.weight_variable([FILTER_SIZE_RECONSTRUCTION, FILTER_SIZE_RECONSTRUCTION, size_final_input, channels_y], std_dev, "out_weight")
     bias = utils.bias_variable([channels_y], "out_weight")
-    output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0))
+    output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0)), x_image)
     
     weights.append(weight)
     biases.append(bias)  
@@ -223,7 +223,7 @@ class Trainer(object):
     
     def __get_optimizer(self, global_step):
         # we choose adam optimezer for this problem.
-        learning_rate = 0.001
+        learning_rate = 0.0001
         self.learning_rate_node = tf.Variable(learning_rate, name="learning_rate")
         
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node)\
