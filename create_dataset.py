@@ -1,34 +1,32 @@
 from scipy.io import loadmat
-from scipy.stats import norm
 import scipy.ndimage as ndimage
 import os
 import shutil
 import numpy as np
-import logging
 
 MAX_VALUE = 255.
 TRAIN_SPLIT = 0.8
-IMAGES_GEN = 10
 
-def create_horizontal_mask(prob_params, N, keep_ratio):
-    middle_index = N//2
-    x_first = np.linspace(0, middle_index, middle_index+1, dtype=int)
-    y_first = prob_params[0] + x_first*(prob_params[1] - prob_params[0])/(middle_index)
+def get_mask(N, strip_width=8):
+    n_strips = (N//2)//strip_width
+    common_diff = np.arange(n_strips, 0, -1)
+    sample_index = []
+    for it in range(common_diff.shape[0]):
+        max_index = min((it+1)*strip_width, N//2)
+        sample_index.append(np.arange(it*strip_width, max_index, common_diff[it]))
     
-    x_second = np.linspace(middle_index+1, N-1, N-middle_index-1, dtype=int)
-    y_second = prob_params[1] + (prob_params[2] - prob_params[1])*(x_second - middle_index)/(N-middle_index)
+    common_diff = np.flip(common_diff)
+    for it in range(common_diff.shape[0]):
+        max_index = min((it+1)*strip_width + N//2, N)
+        sample_index.append(np.arange(it*strip_width + N//2, max_index, common_diff[it]))
+        
+    sample_index = np.delete(np.concatenate(sample_index), 0)
     
-    prob = np.concatenate((y_first, y_second))/(np.sum(y_first) + np.sum(y_second))
-    choosen_index = np.random.choice(N, int(keep_ratio*N), replace=False, p=prob)
+    print("Compression ratio: {}".format(float(sample_index.shape[0])/N))
     
     mask = np.zeros((N,N))
-    mask[choosen_index, :] = 1.
-    return mask
-
-def create_horizontal_custom_mask(probs, N, keep_ratio):
-    chosen_index = np.random.choice(N, int(keep_ratio*N), replace=False, p=probs/np.sum(probs))
-    mask = np.zeros((N,N))
-    mask[chosen_index, :] = 1
+    mask[sample_index, :] = 1
+    
     return mask
     
 def create_input_image(image, mask):
@@ -56,39 +54,34 @@ def augment_data(image):
     image_6 = np.flip(image, axis=1)    
     return [image_1, image_2, image_3, image_4, image_5, image_6]
 
-def process_save_mat_data(images, output_folder, keep_mask_ratios, prefix_output_name):
+def process_save_mat_data(images, output_folder, strip_width=8):
     n_images, N, M = images.shape
     
     if os.path.exists(output_folder):
         shutil.rmtree(output_folder, ignore_errors=True)    
     os.mkdir(output_folder)
+    mask = get_mask(N, strip_width)
     
-    for mask_ratio in keep_mask_ratios:
-        out_filename = prefix_output_name + '_Mask_' + str(mask_ratio) + '_image_'
-        prob = norm.pdf(np.arange(N), N//2, mask_ratio*(N//2))
-        for it in range(n_images):
-            logging.info("Generating data for image: {nbr}, mask:{mask}, at path: {output_folder}".format(nbr=it,
-                         mask=mask_ratio, output_folder=output_folder))
+    for it in range(n_images):
+        print("Generating data for image: {nbr}, at path: {output_folder}".format(nbr=it,output_folder=output_folder))        
+        for aug_type , im in enumerate(augment_data(images[it, :, :])):
+            output_image = np.copy(im)
+            input_image = create_input_image(output_image, mask)
             
-            for aug_type , im in enumerate(augment_data(images[it, :, :])):                
-                for it_gen in range(IMAGES_GEN):
-                    mask = create_horizontal_custom_mask(prob, N, mask_ratio)
-                    output_image = np.copy(im)
-                    input_image = create_input_image(output_image, mask)
-                    
-                    save_data_image = np.zeros((N, N, 5))
-                    save_data_image[:,:,0] = np.real(input_image)
-                    save_data_image[:,:,1] = np.imag(input_image)
-                    save_data_image[:,:,2] = np.real(output_image)
-                    save_data_image[:,:,3] = np.imag(output_image)
-                    save_data_image[:,:,4] = mask
-                    np.save(output_folder + '/' + out_filename + str(it) + '_aug_'+ str(aug_type) + '_gen_' + str(it_gen), save_data_image)
+            save_data_image = np.zeros((N, N, 5))
+            save_data_image[:,:,0] = np.real(input_image)
+            save_data_image[:,:,1] = np.imag(input_image)
+            save_data_image[:,:,2] = np.real(output_image)
+            save_data_image[:,:,3] = np.imag(output_image)
+            save_data_image[:,:,4] = mask
+            np.save(output_folder + '/' + 'Mri_' + str(it) + '_aug_'+ str(aug_type), save_data_image)
                 
                 
 data_1 = load_mat_data('./data_original/train.mat')
 data_2 = load_mat_data('./data_original/test.mat')
 data_net = np.concatenate((data_1, data_2), axis=0)
+
 n_train = int(TRAIN_SPLIT*data_net.shape[0])
 
-process_save_mat_data(data_net[:n_train], './data/train', [0.2], 'train')
-process_save_mat_data(data_net[n_train:], './data/test', [0.2], 'test')
+process_save_mat_data(data_net[:n_train], './data/train')
+process_save_mat_data(data_net[n_train:], './data/test')
