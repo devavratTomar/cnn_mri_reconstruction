@@ -76,7 +76,7 @@ def process_save_mat_data(images, output_folder, keep_mask_ratios, prefix_output
                     output_image = np.copy(im)
                     input_image = create_input_image(output_image, mask)
                     
-                    input_image = input_image/np.max(np.abs(input_image))
+#                    input_image = input_image/np.max(np.abs(input_image))
                     
                     save_data_image = np.zeros((N, N, 5))
                     save_data_image[:,:,0] = np.real(input_image)
@@ -92,5 +92,5 @@ data_2 = load_mat_data('./data_original/test.mat')
 data_net = np.concatenate((data_1, data_2), axis=0)
 n_train = int(TRAIN_SPLIT*data_net.shape[0])
 
-process_save_mat_data(data_net[:n_train], './data/train', [0.1, 0.2], 'train')
-process_save_mat_data(data_net[n_train:], './data/test', [0.1, 0.2], 'test')
+process_save_mat_data(data_net[:n_train], './data/train', [0.2], 'train')
+process_save_mat_data(data_net[n_train:], './data/test', [0.2], 'test')
