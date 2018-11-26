@@ -12,7 +12,7 @@ import shutil
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, filter_size=5, pool_size=2, keep_prob=0.8, create_summary=True):
+def create_conv_network(x, mask, channels_x, channels_y, layers=3, feature_base=64, filter_size=5, pool_size=2, keep_prob=0.8, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 4 channels.
@@ -39,6 +39,7 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, fi
         m = tf.shape(x)[2]
         
         x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
+        mask_image = tf.reshape(mask, tf.stack([-1, n, m]))
         input_node = x_image
         
     weights = []
@@ -113,8 +114,21 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, fi
     with tf.name_scope("output_image"):
         weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
         bias = utils.bias_variable([channels_y], "out_bias")
-        output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0)), x_image)
-        up_h_convs["out"] = output_image
+        output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0))
+        
+        output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
+        input_image_complex = tf.complex(x_image[:, :, :, 0], x_image[:, :, :, 1])
+        
+        output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
+        input_image_complex_fft = tf.spectral.fft2d(input_image_complex)
+        
+        output_image_complex_fft_corrected = tf.multiply(output_image_complex_fft, tf.complex(1. - mask_image, 0.)) + input_image_complex_fft
+        
+        output_image_corrected_complex = tf.reshape(tf.spectral.ifft2d(output_image_complex_fft_corrected), tf.stack([-1, n, m, 1]))
+        
+        output_image_corrected = tf.concat([tf.real(output_image_corrected_complex), tf.imag(output_image_corrected_complex)], axis=3)
+        
+        up_h_convs["out"] = output_image_corrected
     
     
     # Create Summaries
@@ -145,7 +159,7 @@ def create_conv_network(x, channels_x, channels_y, layers=3, feature_base=64, fi
         variables.append(b1)
         variables.append(b2)
         
-    return output_image, variables
+    return output_image_corrected, variables
 
 
 class CnnUnet(object):
@@ -159,8 +173,10 @@ class CnnUnet(object):
     def __init__(self, x_channels, y_channels, layers, feature_base, create_summary=True):
         tf.reset_default_graph()
         
-        self.x = tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
-        self.y = tf.placeholder("float", shape=[None, None, None, y_channels], name="y")
+        self.x =    tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
+        self.y =    tf.placeholder("float", shape=[None, None, None, y_channels], name="y")
+        self.mask = tf.placeholder("float", shape=[None, None, None], name="mask")
+    
         self.keep_prob = tf.placeholder("float", name="dropout_probability")
         
         self.x_channels = x_channels
@@ -168,6 +184,7 @@ class CnnUnet(object):
         self.create_summary = create_summary
         
         output_image, self.variables = create_conv_network(x= self.x,
+                                                           mask = self.mask,
                                                            channels_x= x_channels,
                                                            channels_y= y_channels,
                                                            layers= layers,
@@ -189,7 +206,7 @@ class CnnUnet(object):
                 loss += regulizer*regularizers
         return loss
     
-    def predict(self, model_path, test_image):
+    def predict(self, model_path, test_image, test_mask):
         init = tf.global_variables_initializer()
         
         with tf.Session() as sess:
@@ -199,7 +216,7 @@ class CnnUnet(object):
             self.restore(sess, model_path)
             
             y_dummy = np.empty((test_image.shape[0], test_image.shape[1], test_image.shape[2], self.y_channels))
-            prediction = sess.run(self.predictor, feed_dict={self.x: test_image, self.y: y_dummy, self.keep_prob: 1.0})
+            prediction = sess.run(self.predictor, feed_dict={self.x: test_image, self.y: y_dummy, self.mask: test_mask, self.keep_prob: 1.0})
             
         return prediction
     
@@ -290,8 +307,8 @@ class Trainer(object):
         return init
     
     def store_prediction(self, sess, batch_x, batch_y, masks, name):
-        prediction = sess.run(self.net.predictor, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: 1.})
-        loss = sess.run(self.net.cost, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: 1.})
+        prediction = sess.run(self.net.predictor, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: masks, self.net.keep_prob: 1.})
+        loss = sess.run(self.net.cost, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: masks, self.net.keep_prob: 1.})
         
         logging.info("Validaiton loss = {:.4f}".format(loss))
         
@@ -304,10 +321,10 @@ class Trainer(object):
         utils.save_predictions(batch_x, batch_y, prediction, masks, prediction_folder)
         
     
-    def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
+    def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y, batch_mask):
         # Calculate batch loss and accuracy
         summary_str, loss, predictions = sess.run((self.summary_all, self.net.cost, self.net.predictor),
-                                                  feed_dict={self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: 1.})
+                                                  feed_dict={self.net.x: batch_x, self.net.y: batch_y, self.net.mask: batch_mask, self.net.keep_prob: 1.})
         
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
@@ -364,16 +381,16 @@ class Trainer(object):
             step_counter = 0
             for epoch in range(epochs):
                 print(epoch)
-                for step, (batch_x, batch_y) in enumerate(data_provider_train(self.batch_size)):
+                for step, (batch_x, batch_y, batch_mask) in enumerate(data_provider_train(self.batch_size)):
                     _, loss, lr, gradients = sess.run((self.optimizer, self.net.cost, self.learning_rate_node, self.net.gradients_node),
-                                                      feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: keep_prob})
+                                                      feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: batch_mask, self.net.keep_prob: keep_prob})
                     
                     if self.net.create_summary and self.create_train_summary:
                         gradients_norm = [np.linalg.norm(gradient) for gradient in gradients]
                         self.norm_gradients_node.assign(gradients_norm).eval()
                         
                     if step % display_step == 0:
-                        self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y)
+                        self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y, batch_mask)
                     step_counter +=1
                         
                 self.output_epoch_stats(epoch, loss, lr)

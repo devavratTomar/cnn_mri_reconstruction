@@ -76,8 +76,6 @@ def process_save_mat_data(images, output_folder, keep_mask_ratios, prefix_output
                     output_image = np.copy(im)
                     input_image = create_input_image(output_image, mask)
                     
-#                    input_image = input_image/np.max(np.abs(input_image))
-                    
                     save_data_image = np.zeros((N, N, 5))
                     save_data_image[:,:,0] = np.real(input_image)
                     save_data_image[:,:,1] = np.imag(input_image)

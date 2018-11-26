@@ -36,7 +36,7 @@ class DataProvider(object):
             _data = np.load(file_name)
             images_input.append(_data[:,:,[0,1]])
             images_output.append(_data[:,:,[2,3]])
-            masks.append(_data[:,:,4])
+            masks.append(np.fft.fftshift(_data[:,:,4]) + 0.)
         
         return np.array(images_input), np.array(images_output), np.array(masks)
     
@@ -52,12 +52,14 @@ class DataProvider(object):
             for i in range(n_batches):
                 images_input = []
                 images_output = []
+                masks = []
                 batch_names = self.file_names[(batch_size*i):(batch_size*(i+1))]
                 for file_name in batch_names:
                     _data = np.load(file_name)
                     images_input.append(_data[:,:,[0,1]])
                     images_output.append(_data[:,:,[2,3]])
-                yield np.array(images_input), np.array(images_output)
+                    masks.append(np.fft.fftshift(_data[:,:,4]) + 0.)
+                yield np.array(images_input), np.array(images_output), np.array(masks)
                 
     def get_sample_images_with_mask(self, number_images):
         images_input = []
