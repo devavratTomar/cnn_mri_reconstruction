@@ -30,9 +30,9 @@ def get_mask(N, strip_width=8):
     return mask
     
 def create_input_image(image, mask):
-    image_fft = np.fft.fftshift(np.fft.fft2(image))
-    out = mask*image_fft    
-    return np.fft.ifft2(np.fft.fftshift(out))
+    image_fft = np.fft.fft2(image)
+    out = image_fft*np.fft.fftshift(mask)   
+    return out
 
 def create_output_image(image, mask, lambda_):
     image_fft = np.fft.fftshift(np.fft.fft2(image))
