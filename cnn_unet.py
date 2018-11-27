@@ -12,7 +12,7 @@ import shutil
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_conv_network(x, mask, channels_x, channels_y, layers=3, feature_base=64, filter_size=5, pool_size=2, keep_prob=0.8, create_summary=True):
+def create_conv_network(x, mask, channels_x, channels_y, layers=3, feature_base=64, filter_size=3, pool_size=2, keep_prob=0.8, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 4 channels.
@@ -114,19 +114,15 @@ def create_conv_network(x, mask, channels_x, channels_y, layers=3, feature_base=
     with tf.name_scope("output_image"):
         weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
         bias = utils.bias_variable([channels_y], "out_bias")
-        output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0))
+        output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0)), x_image)
         
         output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
-        input_image_complex = tf.complex(x_image[:, :, :, 0], x_image[:, :, :, 1])
         
-        output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
-        input_image_complex_fft = tf.spectral.fft2d(input_image_complex)
+        output_image_complex_ifft = tf.spectral.ifft2d(output_image_complex)
+
+        output_image_complex_ifft = tf.reshape(output_image_complex_ifft, tf.stack([-1, n, m, 1]))
         
-        output_image_complex_fft_corrected = tf.multiply(output_image_complex_fft, tf.complex(1. - mask_image, 0.)) + input_image_complex_fft
-        
-        output_image_corrected_complex = tf.reshape(tf.spectral.ifft2d(output_image_complex_fft_corrected), tf.stack([-1, n, m, 1]))
-        
-        output_image_corrected = tf.concat([tf.real(output_image_corrected_complex), tf.imag(output_image_corrected_complex)], axis=3)
+        output_image_corrected = tf.concat([tf.real(output_image_complex_ifft), tf.imag(output_image_complex_ifft)], axis=3)
         
         up_h_convs["out"] = output_image_corrected
     
@@ -341,6 +337,7 @@ class Trainer(object):
               keep_prob,
               epochs=10,
               display_step=1,
+              lr_update=20,
               restore=False,
               write_graph=True,
               prediction_path='prediction'):
@@ -396,6 +393,9 @@ class Trainer(object):
                 self.output_epoch_stats(epoch, loss, lr)
                 self.store_prediction(sess, test_x, test_y, masks, "epoch_{}".format(epoch))
                 save_path = self.net.save(sess, save_path)
+                
+                if epoch % lr_update == 0 and epoch != 0:
+                    sess.run(self.learning_rate_node.assign(self.learning_rate_node.eval()/2))
             
             summary_writer.close()
         logging.info("Training Finished")
