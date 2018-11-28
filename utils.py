@@ -11,6 +11,11 @@ from skimage.measure import compare_ssim as ssim
 
 LAMBDA = 2
 
+def padding_circular(x, padding):
+    out = tf.concat([x[:, -padding:, :, :], x, x[:, 0:padding, :, :]], axis=1)
+    out = tf.concat([out[:, :, -padding:, :], out, out[:, :, 0:padding, :]], axis=2)  
+    return out
+    
 def weight_variable(shape, stddev, name):
     initial = tf.truncated_normal(shape, stddev=stddev)
     return tf.Variable(initial, name=name)
@@ -22,9 +27,14 @@ def bias_variable(shape, name):
     initial = tf.constant(0.1, shape=shape)
     return tf.Variable(initial, name=name)
 
-def conv2d(x, W, b, keep_prob):
+def conv2d(x, W, b, keep_prob, add_custom_pad=True):
     with tf.name_scope("conv2d"):
-        conv_2d = tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='SAME')
+        padding = (tf.shape(W)[0] - 1)//2
+        if not add_custom_pad:
+            conv_2d = tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='VALID')
+        else:
+            x_padded = padding_circular(x, padding)
+            conv_2d = tf.nn.conv2d(x_padded, W, strides=[1, 1, 1, 1], padding='VALID')
         conv_2d_b = tf.nn.bias_add(conv_2d, b)
         return tf.nn.dropout(conv_2d_b, keep_prob)
 
