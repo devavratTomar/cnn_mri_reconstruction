@@ -67,11 +67,11 @@ def create_conv_network(x, mask, channels_x, channels_y, layers=3, feature_base=
             b2 = utils.bias_variable([features], "b2")
             
             if layer == 0:
-                conv_1 = utils.conv2d(input_node, w1, b1, keep_prob, stride=1, dilation=1)
+                conv_1 = utils.conv2d(input_node, w1, b1, keep_prob, stride=1)
             else:
-                conv_1 = utils.conv2d(input_node, w1, b1, keep_prob, stride=2, dilation=1)
+                conv_1 = utils.conv2d(input_node, w1, b1, keep_prob, stride=2)
             
-            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2, keep_prob, stride=1, dilation=2)
+            conv_2 = utils.conv2d_dilated(tf.nn.relu(conv_1), w2, b2, keep_prob, dilation=2)
             dw_h_convs[layer] = tf.nn.relu(conv_2)
             
             weights.append((w1, w2))
@@ -100,8 +100,8 @@ def create_conv_network(x, mask, channels_x, channels_y, layers=3, feature_base=
             b1 = utils.bias_variable([features//2], "b1")
             b2 = utils.bias_variable([features//2], "b2")
             
-            conv_1 = utils.conv2d(h_deconv_concat, w1, b1, keep_prob, stride=1, dilation=1)
-            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2, keep_prob, stride=1, dilation=1)
+            conv_1 = utils.conv2d(h_deconv_concat, w1, b1, keep_prob, stride=1)
+            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2, keep_prob, stride=1)
             
             input_node = tf.nn.relu(conv_2)
             up_h_convs[layer] = input_node
@@ -114,7 +114,7 @@ def create_conv_network(x, mask, channels_x, channels_y, layers=3, feature_base=
     with tf.name_scope("output_image"):
         weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
         bias = utils.bias_variable([channels_y], "out_bias")
-        output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, dilation=1, add_custom_pad=False), x_image)
+        output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False), x_image)
         
         output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
         

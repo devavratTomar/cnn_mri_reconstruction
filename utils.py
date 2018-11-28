@@ -27,14 +27,21 @@ def bias_variable(shape, name):
     initial = tf.constant(0.1, shape=shape)
     return tf.Variable(initial, name=name)
 
-def conv2d(x, W, b, keep_prob, stride=1, dilation=1, add_custom_pad=True):
+def conv2d_dilated(x, W, b, keep_prob, dilation):
+    padding = ((tf.shape(W)[0] - 1)//2)*dilation
+    x_padded = padding_circular(x, padding)
+    conv_2d = tf.nn.atrous_conv2d(x_padded, W, rate=dilation, padding='VALID')
+    conv_2d_b = tf.nn.bias_add(conv_2d, b)
+    return tf.nn.dropout(conv_2d_b, keep_prob)
+    
+def conv2d(x, W, b, keep_prob, stride=1, add_custom_pad=True):
     with tf.name_scope("conv2d"):
-        padding = ((tf.shape(W)[0] - 1)//2)*dilation
+        padding = ((tf.shape(W)[0] - 1)//2)
         if not add_custom_pad:
-            conv_2d = tf.nn.conv2d(x, W, strides=[1, stride, stride, 1], dilations=[1, dilation, dilation, 1], padding='VALID')
+            conv_2d = tf.nn.conv2d(x, W, strides=[1, stride, stride, 1], padding='VALID')
         else:
             x_padded = padding_circular(x, padding)
-            conv_2d = tf.nn.conv2d(x_padded, W, strides=[1, stride, stride, 1], dilations=[1, dilation, dilation, 1], padding='VALID')
+            conv_2d = tf.nn.conv2d(x_padded, W, strides=[1, stride, stride, 1], padding='VALID')
         
         conv_2d_b = tf.nn.bias_add(conv_2d, b)
         return tf.nn.dropout(conv_2d_b, keep_prob)
