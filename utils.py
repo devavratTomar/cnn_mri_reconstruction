@@ -96,36 +96,20 @@ def save_predictions(input_image, ground_truth, prediction, masks, folder):
         img = np.clip(img, 0, 1)
         io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)
                 
-def save_predictions_after_transform(input_image, ground_truth, prediction, mask, lambda_, folder):
-    for image_iter in range(input_image.shape[0]):
-        msk = mask[image_iter]
+def save_predictions_after_transform(input_image, ground_truth, prediction, folder):
+    for image_iter in range(ground_truth.shape[0]):
+        im_fft = input_image[image_iter]
         gt = ground_truth[image_iter]
         pd = prediction[image_iter]
         gt_cmplx = gt[:,:,0] + 1j* gt[:,:,1] # ground truth complex(image domain)
         pd_cmplx = pd[:,:,0] + 1j* pd[:,:,1] # prediction complex(image domain) 
-        msk_cmplx = msk[:,:,0] + 1j* msk[:,:,1] # mask complex(image domain)
+        im_fft_cmplx = im_fft[:,:,0] + 1j*im_fft[:,:,1]
         
-        bmask = np.fft.fftshift(np.fft.fft2(msk_cmplx)) # binary mask in the fourier domain
-        
-        # recover true ground truth image
-        tr_img = (lambda_+1)*np.fft.fftshift(np.fft.fft2(gt_cmplx))/(lambda_*bmask + np.ones((gt.shape[0],gt.shape[1])))
-        tr_img = np.fft.ifft2(np.fft.fftshift(tr_img))
+        img = np.concatenate((get_abs_complex(np.fft.ifft2(im_fft_cmplx)),
+                              get_abs_complex(gt_cmplx),
+                              get_abs_complex(pd_cmplx)), axis=1)
 
-        # recover true predicted image
-        pre_img = (lambda_+1)*np.fft.fftshift(np.fft.fft2(pd_cmplx))/(lambda_*bmask + np.ones((gt.shape[0],gt.shape[1])))
-        pre_img = np.fft.ifft2(np.fft.fftshift(pre_img))
-        
-        
-        img = np.concatenate((get_abs(input_image[image_iter]),
-                              np.abs(bmask),
-                              np.abs(tr_img),
-                              np.abs(pre_img)), axis=1)
-#         plt.imshow(img)
-#         plt.show()
-
-        diff = tr_img - pre_img
-        xrange = max(np.abs(pre_img).flatten())
-        metrics = get_error_metrics(tr_img, pre_img)
+        metrics = get_error_metrics(gt_cmplx, pd_cmplx)
 
         print('SSIM: {:.3f}, SNR: {:.1f}, PSNR: {:.2f}, l2-error: {:.3f}, l1-error: {:.3f}'.format(metrics[0], \
                                                                                               metrics[1],
@@ -134,9 +118,8 @@ def save_predictions_after_transform(input_image, ground_truth, prediction, mask
                                                                                               metrics[4]))
         # TODO(mfsahin): save the reconstructed image to a folder and performance metrics
         # to a .csv file along with subsampling rates.
-        
-#         img = np.clip(img, 0, 1)
-#         io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)      
+        img = np.clip(img, 0, 1)
+        io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)      
 
 def get_error_metrics(f, I):
     """
