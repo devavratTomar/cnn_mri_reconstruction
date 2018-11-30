@@ -28,147 +28,144 @@ def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=6
     """
     FILTER_SIZE_DEF = 3
     FILTER_SIZE_DIL = 5
-    
-    with tf.device('/device:GPU:1'):
-        with tf.variable_scope("GAN/Generator",reuse=reuse):
-            logging.info("Layers: {layers}, features: {features} input channels {in_channels}, output channels {out_channels}".format(
-                          layers=layers,
-                          features=feature_base,
-                          in_channels=channels_x,
-                          out_channels=channels_y))
-            
-            #placeholder for input image
-            n = tf.shape(x)[1]
-            m = tf.shape(x)[2]
-            x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
-            input_node = x_image
-    
-            dw_h_convs = OrderedDict()
-            
-            # down layers
-            # w1 and w2 operates on input layer. w1 is size 3 and w2 is size 5 with dilation 2. w3 operates on concatenation of w1 and w2.
-            for layer in range(layers):
-                with tf.variable_scope("down_conv_layer{}".format(str(layer))):
-                    features = (2**layer)*feature_base
-                    std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features//2)))
-                    std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features//2)))
-                    std_dev_3 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
-                    
-                    if  layer == 0:
-                        w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
-                        w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
-                    else:
-                        w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
-                        w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
-                        
-                    w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
-                    
-                    b1 = utils.bias_variable([features//2], "b1")
-                    b2 = utils.bias_variable([features], "b2")
-                    b3 = utils.bias_variable([features], "b3")
-                    
-                    if layer == 0:
-                        conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=1))
-                    else:
-                        conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
-                    
-    #                conv_2 = tf.nn.leaky_relu(utils.conv2d_dilated(conv_1, w2, b2, keep_prob, dilation=2))
-                    conv_2 = tf.nn.leaky_relu(utils.conv2d(conv_1, w2, b2, keep_prob, stride=1))
-                    conv_3 = tf.nn.leaky_relu(utils.conv2d(conv_2, w3, b3, keep_prob, stride=1))
-                    
-                    dw_h_convs[layer] = conv_3
-                    input_node = dw_h_convs[layer]
+    with tf.variable_scope("GAN/Generator",reuse=reuse):
+        logging.info("Layers: {layers}, features: {features} input channels {in_channels}, output channels {out_channels}".format(
+                      layers=layers,
+                      features=feature_base,
+                      in_channels=channels_x,
+                      out_channels=channels_y))
         
-            #up layers
-            for layer in range(layers - 2, -1, -1):
-                with tf.variable_scope("up_conv_layer{}".format(str(layer))):
-                    features = (2**(layer + 1))*feature_base
-                    std_dev = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
-                    
-                    w1 = utils.weight_variable_devonc([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features], std_dev, "w1")
-                    b1 = utils.bias_variable([features//2], "b1")
-                    
-                    h_deconv = tf.nn.leaky_relu(utils.deconv2d(input_node, w1, 2) + b1)
-                    h_deconv_sum = tf.add(dw_h_convs[layer], h_deconv)
-                    
-                    w2 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev, "w2")
-                    w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev, "w3")
-                    b2 = utils.bias_variable([features//2], "b2")
-                    b3 = utils.bias_variable([features//2], "b3")
-                    
-                    conv_2 = utils.conv2d(h_deconv_sum, w2, b2, keep_prob, stride=1)
-                    conv_3 = utils.conv2d(tf.nn.leaky_relu(conv_2), w3, b3, keep_prob, stride=1)
-                    
-                    input_node = tf.nn.leaky_relu(conv_3)
+        #placeholder for input image
+        n = tf.shape(x)[1]
+        m = tf.shape(x)[2]
+        x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
+        input_node = x_image
+
+        dw_h_convs = OrderedDict()
+        
+        # down layers
+        # w1 and w2 operates on input layer. w1 is size 3 and w2 is size 5 with dilation 2. w3 operates on concatenation of w1 and w2.
+        for layer in range(layers):
+            with tf.variable_scope("down_conv_layer{}".format(str(layer))):
+                features = (2**layer)*feature_base
+                std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features//2)))
+                std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features//2)))
+                std_dev_3 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
                 
-            weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
-            bias = utils.bias_variable([channels_y], "out_bias")
+                if  layer == 0:
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
+                else:
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
+                    
+                w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
+                
+                b1 = utils.bias_variable([features//2], "b1")
+                b2 = utils.bias_variable([features], "b2")
+                b3 = utils.bias_variable([features], "b3")
+                
+                if layer == 0:
+                    conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=1))
+                else:
+                    conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
+                
+#                conv_2 = tf.nn.leaky_relu(utils.conv2d_dilated(conv_1, w2, b2, keep_prob, dilation=2))
+                conv_2 = tf.nn.leaky_relu(utils.conv2d(conv_1, w2, b2, keep_prob, stride=1))
+                conv_3 = tf.nn.leaky_relu(utils.conv2d(conv_2, w3, b3, keep_prob, stride=1))
+                
+                dw_h_convs[layer] = conv_3
+                input_node = dw_h_convs[layer]
+    
+        #up layers
+        for layer in range(layers - 2, -1, -1):
+            with tf.variable_scope("up_conv_layer{}".format(str(layer))):
+                features = (2**(layer + 1))*feature_base
+                std_dev = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
+                
+                w1 = utils.weight_variable_devonc([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features], std_dev, "w1")
+                b1 = utils.bias_variable([features//2], "b1")
+                
+                h_deconv = tf.nn.leaky_relu(utils.deconv2d(input_node, w1, 2) + b1)
+                h_deconv_sum = tf.add(dw_h_convs[layer], h_deconv)
+                
+                w2 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev, "w2")
+                w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev, "w3")
+                b2 = utils.bias_variable([features//2], "b2")
+                b3 = utils.bias_variable([features//2], "b3")
+                
+                conv_2 = utils.conv2d(h_deconv_sum, w2, b2, keep_prob, stride=1)
+                conv_3 = utils.conv2d(tf.nn.leaky_relu(conv_2), w3, b3, keep_prob, stride=1)
+                
+                input_node = tf.nn.leaky_relu(conv_3)
             
-            output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False), x_image)
-            output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
+        weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
+        bias = utils.bias_variable([channels_y], "out_bias")
         
-            output_image_complex_ifft = tf.spectral.ifft2d(output_image_complex)
-            output_image_complex_ifft = tf.reshape(output_image_complex_ifft, tf.stack([-1, n, m, 1]))
-            output_image_corrected = tf.concat([tf.real(output_image_complex_ifft), tf.imag(output_image_complex_ifft)], axis=3)
-            
-            return output_image_corrected
+        output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False), x_image)
+        output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
+    
+        output_image_complex_ifft = tf.spectral.ifft2d(output_image_complex)
+        output_image_complex_ifft = tf.reshape(output_image_complex_ifft, tf.stack([-1, n, m, 1]))
+        output_image_corrected = tf.concat([tf.real(output_image_complex_ifft), tf.imag(output_image_complex_ifft)], axis=3)
+        
+        return output_image_corrected
 
 
 def create_discriminator_network(x, channels_x, layers=6, feature_base=16, keep_prob=0.8, reuse=False, create_summary=True):
     FILTER_SIZE_DEF = 3
     FILTER_SIZE_DIL = 5
     
-    with tf.device('/device:GPU:0'):
-        with tf.variable_scope("GAN/Discriminator",reuse=reuse):
-            n = tf.shape(x)[1]
-            m = tf.shape(x)[2]
-            
-            x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
-            input_node = x_image
-            
-            for layer in range(layers):
-                with tf.variable_scope("conv_layer{}".format(str(layer))):
-                    features = (2**layer)*feature_base
-                    std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features//2)))
-                    std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features//2)))
-                    std_dev_3 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
-                    
-                    if  layer == 0:
-                        w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
-                        w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
-                    else:
-                        w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
-                        w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
-                        
-                    w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
-                    
-                    b1 = utils.bias_variable([features//2], "b1")
-                    b2 = utils.bias_variable([features], "b2")
-                    b3 = utils.bias_variable([features], "b3")
-                    
-                    if layer == 0:
-                        conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=1))
-                    else:
-                        conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
-                    
-                    conv_2 = tf.nn.leaky_relu(utils.conv2d(conv_1, w2, b2, keep_prob, stride=1))
-                    conv_3 = tf.nn.leaky_relu(utils.conv2d(conv_2, w3, b3, keep_prob, stride=1))
-                    input_node = conv_3
-            
-            num_features = (IMAGE_SIZE//(2**layer))*(IMAGE_SIZE//(2**layer))*features
-            # flatten final layer and add FC layer
-            with tf.variable_scope("FC_layer"):
-                final_flatten_input = tf.reshape(input_node, [-1, num_features])
-    
-                w_fc_1 = utils.get_variable([num_features, num_features//2], "w_fc_1")
-                b_fc_1 = utils.bias_variable([num_features//2], "b_fc_1")
-                logit_fc_1 = tf.nn.leaky_relu(tf.matmul(final_flatten_input, w_fc_1) + b_fc_1)
+    with tf.variable_scope("GAN/Discriminator",reuse=reuse):
+        n = tf.shape(x)[1]
+        m = tf.shape(x)[2]
+        
+        x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
+        input_node = x_image
+        
+        for layer in range(layers):
+            with tf.variable_scope("conv_layer{}".format(str(layer))):
+                features = (2**layer)*feature_base
+                std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features//2)))
+                std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features//2)))
+                std_dev_3 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
                 
-                w_fc_2 = utils.get_variable([num_features//2, 1], "w_fc_2")
-                b_fc_2 = utils.bias_variable([1], "b_fc_2")
-                logit_fc_2 = tf.matmul(logit_fc_1, w_fc_2) + b_fc_2
+                if  layer == 0:
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
+                else:
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
+                    
+                w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
+                
+                b1 = utils.bias_variable([features//2], "b1")
+                b2 = utils.bias_variable([features], "b2")
+                b3 = utils.bias_variable([features], "b3")
+                
+                if layer == 0:
+                    conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=1))
+                else:
+                    conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
+                
+                conv_2 = tf.nn.leaky_relu(utils.conv2d(conv_1, w2, b2, keep_prob, stride=1))
+                conv_3 = tf.nn.leaky_relu(utils.conv2d(conv_2, w3, b3, keep_prob, stride=1))
+                input_node = conv_3
+        
+        num_features = (IMAGE_SIZE//(2**layer))*(IMAGE_SIZE//(2**layer))*features
+        # flatten final layer and add FC layer
+        with tf.variable_scope("FC_layer"):
+            final_flatten_input = tf.reshape(input_node, [-1, num_features])
+
+            w_fc_1 = utils.get_variable([num_features, num_features//2], "w_fc_1")
+            b_fc_1 = utils.bias_variable([num_features//2], "b_fc_1")
+            logit_fc_1 = tf.nn.leaky_relu(tf.matmul(final_flatten_input, w_fc_1) + b_fc_1)
             
-            return logit_fc_2
+            w_fc_2 = utils.get_variable([num_features//2, 1], "w_fc_2")
+            b_fc_2 = utils.bias_variable([1], "b_fc_2")
+            logit_fc_2 = tf.matmul(logit_fc_1, w_fc_2) + b_fc_2
+        
+        return logit_fc_2
 
             
 class CnnUnet_GAN(object):
