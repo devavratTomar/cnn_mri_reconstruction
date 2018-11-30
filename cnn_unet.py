@@ -27,7 +27,7 @@ def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=6
     :create_summary: Creates Tensorboard summary if True
     """
     FILTER_SIZE_DEF = 3
-    FILTER_SIZE_DIL = 3
+    FILTER_SIZE_DIL = 5
     
     with tf.variable_scope("GAN/Generator",reuse=reuse):
         logging.info("Layers: {layers}, features: {features} input channels {in_channels}, output channels {out_channels}".format(
@@ -55,10 +55,10 @@ def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=6
                 
                 if  layer == 0:
                     w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
-                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features//2], std_dev_2, "w2")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
                 else:
                     w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
-                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features//2], std_dev_2, "w2")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
                     
                 w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
                 
@@ -71,8 +71,9 @@ def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=6
                 else:
                     conv_1 = tf.nn.relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
                 
-                conv_2 = tf.nn.relu(utils.conv2d_dilated(conv_1, w2, b2, keep_prob, dilation=2))
-                conv_3 = tf.nn.relu(utils.conv2d(tf.concat([conv_1, conv_2], axis=3), w3, b3, keep_prob, stride=1))
+#                conv_2 = tf.nn.relu(utils.conv2d_dilated(conv_1, w2, b2, keep_prob, dilation=2))
+                conv_2 = tf.nn.relu(utils.conv2d(conv_1, w2, b2, keep_prob, stride=1))
+                conv_3 = tf.nn.relu(utils.conv2d(conv_2, w3, b3, keep_prob, stride=1))
                 
                 dw_h_convs[layer] = conv_3
                 input_node = dw_h_convs[layer]
@@ -119,17 +120,17 @@ def create_discriminator_network(x, channels_x, layers=6, feature_base=16, keep_
         
         for layer in range(layers):
             with tf.variable_scope("conv_layer{}".format(str(layer))):
-                features = (2**layer)*feature_base
+                features = feature_base
                 std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features//2)))
                 std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features//2)))
                 std_dev_3 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
                 
                 if  layer == 0:
                     w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
-                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features//2], std_dev_2, "w2")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
                 else:
-                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
-                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features//2], std_dev_2, "w2")
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features//2], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
                     
                 w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
                 
@@ -143,7 +144,7 @@ def create_discriminator_network(x, channels_x, layers=6, feature_base=16, keep_
                     conv_1 = tf.nn.relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
                 
                 conv_2 = tf.nn.relu(utils.conv2d(conv_1, w2, b2, keep_prob, stride=1))
-                conv_3 = tf.nn.relu(utils.conv2d(tf.concat([conv_1, conv_2], axis=3), w3, b3, keep_prob, stride=1))
+                conv_3 = tf.nn.relu(utils.conv2d(conv_2, w3, b3, keep_prob, stride=1))
                 input_node = conv_3
         
         num_features = (IMAGE_SIZE//(2**layer))*(IMAGE_SIZE//(2**layer))*features
