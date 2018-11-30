@@ -105,7 +105,13 @@ def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=6
             bias = utils.bias_variable([channels_y], "out_bias")
             
             output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False), x_image)
-            return output_image
+            output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
+        
+            output_image_complex_ifft = tf.spectral.ifft2d(output_image_complex)
+            output_image_complex_ifft = tf.reshape(output_image_complex_ifft, tf.stack([-1, n, m, 1]))
+            output_image_corrected = tf.concat([tf.real(output_image_complex_ifft), tf.imag(output_image_complex_ifft)], axis=3)
+            
+            return output_image_corrected
 
 
 def create_discriminator_network(x, channels_x, layers=6, feature_base=16, keep_prob=0.8, reuse=False, create_summary=True):
@@ -131,7 +137,7 @@ def create_discriminator_network(x, channels_x, layers=6, feature_base=16, keep_
                         w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
                         w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
                     else:
-                        w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features//2], std_dev_1, "w1")
+                        w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
                         w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
                         
                     w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
