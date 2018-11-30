@@ -10,9 +10,12 @@ import logging
 import os
 import shutil
 
+#TODO: Pass image size as parameter
+IMAGE_SIZE = 256
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_conv_network(x, mask, channels_x, channels_y, layers=3, feature_base=64, filter_size=5, pool_size=2, keep_prob=0.8, create_summary=True):
+def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=64, keep_prob=0.8, reuse=False, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 4 channels.
@@ -23,142 +26,143 @@ def create_conv_network(x, mask, channels_x, channels_y, layers=3, feature_base=
     :param pool_size: size of pooling layer
     :create_summary: Creates Tensorboard summary if True
     """
+    FILTER_SIZE_DEF = 3
+    FILTER_SIZE_DIL = 3
     
-    logging.info("Layers: {layers}, features: {features}, filter size {fill_size}x{fill_size}, pool size {pool_size}x{pool_size},"
-                 "input channels {in_channels}, output channels {out_channels}".format(
-                  layers=layers,
-                  features=feature_base,
-                  fill_size=filter_size,
-                  pool_size=pool_size,
-                  in_channels=channels_x,
-                  out_channels=channels_y))
-    
-    #placeholder for input image
-    with tf.name_scope("input_image"):
+    with tf.variable_scope("GAN/Generator",reuse=reuse):
+        logging.info("Layers: {layers}, features: {features} input channels {in_channels}, output channels {out_channels}".format(
+                      layers=layers,
+                      features=feature_base,
+                      in_channels=channels_x,
+                      out_channels=channels_y))
+        
+        #placeholder for input image
         n = tf.shape(x)[1]
         m = tf.shape(x)[2]
-        
         x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
-        mask_image = tf.reshape(mask, tf.stack([-1, n, m]))
         input_node = x_image
+
+        dw_h_convs = OrderedDict()
         
-    weights = []
-    biases = []
-    convs = []
-    pools = OrderedDict()
-    deconv = OrderedDict()
-    dw_h_convs = OrderedDict()
-    up_h_convs = OrderedDict()
-    
-    
-    # down layers
-    for layer in range(layers):
-        with tf.name_scope("down_conv_layer{}".format(str(layer))):
-            features = (2**layer)*feature_base
-            std_dev = np.sqrt(2./(filter_size*filter_size*features))
-            
-            if  layer == 0:
-                w1 = utils.weight_variable([filter_size, filter_size, channels_x, features], std_dev, "w1")
-            else:
-                w1 = utils.weight_variable([filter_size, filter_size, features//2, features], std_dev, "w1")
+        # down layers
+        # w1 and w2 operates on input layer. w1 is size 3 and w2 is size 5 with dilation 2. w3 operates on concatenation of w1 and w2.
+        for layer in range(layers):
+            with tf.variable_scope("down_conv_layer{}".format(str(layer))):
+                features = (2**layer)*feature_base
+                std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features//2)))
+                std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features//2)))
+                std_dev_3 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
                 
-            w2 = utils.weight_variable([filter_size, filter_size, features, features], std_dev, "w2")
-            b1 = utils.bias_variable([features], "b1")
-            b2 = utils.bias_variable([features], "b2")
-            
-            if layer == 0:
-                conv_1 = utils.conv2d(input_node, w1, b1, keep_prob, stride=1)
-            else:
-                conv_1 = utils.conv2d(input_node, w1, b1, keep_prob, stride=2)
-            
-            conv_2 = utils.conv2d_dilated(tf.nn.relu(conv_1), w2, b2, keep_prob, dilation=2)
-            dw_h_convs[layer] = tf.nn.relu(conv_2)
-            
-            weights.append((w1, w2))
-            biases.append((b1, b2))
-            convs.append((conv_1, conv_2))
-            input_node = dw_h_convs[layer]
+                if  layer == 0:
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features//2], std_dev_2, "w2")
+                else:
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features//2], std_dev_2, "w2")
+                    
+                w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
+                
+                b1 = utils.bias_variable([features//2], "b1")
+                b2 = utils.bias_variable([features//2], "b2")
+                b3 = utils.bias_variable([features], "b3")
+                
+                if layer == 0:
+                    conv_1 = tf.nn.relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=1))
+                else:
+                    conv_1 = tf.nn.relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
+                
+                conv_2 = tf.nn.relu(utils.conv2d_dilated(conv_1, w2, b2, keep_prob, dilation=2))
+                conv_3 = tf.nn.relu(utils.conv2d(tf.concat([conv_1, conv_2], axis=3), w3, b3, keep_prob, stride=1))
+                
+                dw_h_convs[layer] = conv_3
+                input_node = dw_h_convs[layer]
     
-#    input_node = dw_h_convs[layers-1]
-    
-    #up layers
-    for layer in range(layers - 2, -1, -1):
-        with tf.name_scope("up_conv_layer{}".format(str(layer))):
-            features = (2**(layer + 1))*feature_base
-            std_dev = np.sqrt(2./(filter_size*filter_size*features))
+        #up layers
+        for layer in range(layers - 2, -1, -1):
+            with tf.variable_scope("up_conv_layer{}".format(str(layer))):
+                features = (2**(layer + 1))*feature_base
+                std_dev = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
+                
+                w1 = utils.weight_variable_devonc([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features], std_dev, "w1")
+                b1 = utils.bias_variable([features//2], "b1")
+                
+                h_deconv = tf.nn.relu(utils.deconv2d(input_node, w1, 2) + b1)
+                h_deconv_concat = tf.concat([dw_h_convs[layer], h_deconv], 3)
+                
+                w2 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features//2], std_dev, "w2")
+                w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev, "w3")
+                b2 = utils.bias_variable([features//2], "b2")
+                b3 = utils.bias_variable([features//2], "b3")
+                
+                conv_2 = utils.conv2d(h_deconv_concat, w2, b2, keep_prob, stride=1)
+                conv_3 = utils.conv2d(tf.nn.relu(conv_2), w3, b3, keep_prob, stride=1)
+                
+                input_node = tf.nn.relu(conv_3)
             
-            wd = utils.weight_variable_devonc([pool_size, pool_size, features//2, features], std_dev, "wd")
-            bd = utils.bias_variable([features//2], "bd")
-            
-            h_deconv = tf.nn.relu(utils.deconv2d(input_node, wd, pool_size) + bd)
-            h_deconv_concat = tf.concat([dw_h_convs[layer], h_deconv], 3)
-            
-            deconv[layer] = h_deconv_concat
-            
-            w1 = utils.weight_variable([filter_size, filter_size, features, features//2], std_dev, "w1")
-            w2 = utils.weight_variable([filter_size, filter_size, features//2, features//2], std_dev, "w2")
-            b1 = utils.bias_variable([features//2], "b1")
-            b2 = utils.bias_variable([features//2], "b2")
-            
-            conv_1 = utils.conv2d(h_deconv_concat, w1, b1, keep_prob, stride=1)
-            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2, keep_prob, stride=1)
-            
-            input_node = tf.nn.relu(conv_2)
-            up_h_convs[layer] = input_node
-            
-            weights.append((w1, w2))
-            biases.append((b1, b2))
-            convs.append((conv_1, conv_2))
-            
-    #Output image
-    with tf.name_scope("output_image"):
         weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
         bias = utils.bias_variable([channels_y], "out_bias")
         output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False), x_image)
         
-        output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
-        
-        output_image_complex_ifft = tf.spectral.ifft2d(output_image_complex)
+        return output_image
 
-        output_image_complex_ifft = tf.reshape(output_image_complex_ifft, tf.stack([-1, n, m, 1]))
-        
-        output_image_corrected = tf.concat([tf.real(output_image_complex_ifft), tf.imag(output_image_complex_ifft)], axis=3)
-        
-        up_h_convs["out"] = output_image_corrected
+
+def create_discriminator_network(x, channels_x, layers=6, feature_base=16, keep_prob=0.8, reuse=False, create_summary=True):
+    FILTER_SIZE_DEF = 3
+    FILTER_SIZE_DIL = 5
     
-    
-    # Create Summaries
-    if create_summary:
-        with tf.name_scope("summaries"):
-            for i, (c1, c2) in enumerate(convs):
-                tf.summary.image("summary_conv_{:02}_01".format(i), utils.get_image_summary(c1))
-                tf.summary.image("summary_conv_{:02}_02".format(i), utils.get_image_summary(c2))
+    with tf.variable_scope("GAN/Discriminator",reuse=reuse):
+        n = tf.shape(x)[1]
+        m = tf.shape(x)[2]
+        
+        x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
+        input_node = x_image
+        
+        for layer in range(layers):
+            with tf.variable_scope("conv_layer{}".format(str(layer))):
+                features = (2**layer)*feature_base
+                std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features//2)))
+                std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features//2)))
+                std_dev_3 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
                 
-            for k in pools.keys():
-                tf.summary.image("summary_pool_{:02}".format(k), utils.get_image_summary(pools[k]))
+                if  layer == 0:
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features//2], std_dev_2, "w2")
+                else:
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features//2], std_dev_2, "w2")
+                    
+                w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
+                
+                b1 = utils.bias_variable([features//2], "b1")
+                b2 = utils.bias_variable([features//2], "b2")
+                b3 = utils.bias_variable([features], "b3")
+                
+                if layer == 0:
+                    conv_1 = tf.nn.relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=1))
+                else:
+                    conv_1 = tf.nn.relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
+                
+                conv_2 = tf.nn.relu(utils.conv2d(conv_1, w2, b2, keep_prob, stride=1))
+                conv_3 = tf.nn.relu(utils.conv2d(tf.concat([conv_1, conv_2], axis=3), w3, b3, keep_prob, stride=1))
+                input_node = conv_3
+        
+        num_features = (IMAGE_SIZE//(2**layer))*(IMAGE_SIZE//(2**layer))*features
+        # flatten final layer and add FC layer
+        with tf.variable_scope("FC_layer"):
+            final_flatten_input = tf.reshape(input_node, [-1, num_features])
+
+            w_fc_1 = utils.get_variable([num_features, num_features//2], "w_fc_1")
+            b_fc_1 = utils.bias_variable([num_features//2], "b_fc_1")
+            logit_fc_1 = tf.nn.relu(tf.matmul(final_flatten_input, w_fc_1) + b_fc_1)
             
-            for k in deconv.keys():
-                tf.summary.image("summary_deconv_concat_{:02}".format(k), utils.get_image_summary(deconv[k]))
-                
-            for k in dw_h_convs.keys():
-                tf.summary.histogram("dw_convolution_{:02}/activations".format(k), dw_h_convs[k])
-
-            for k in up_h_convs.keys():
-                tf.summary.histogram("up_convolution_{}/activations".format(k), up_h_convs[k])
-    
-    variables = []
-    for w1, w2 in weights:
-        variables.append(w1)
-        variables.append(w2)
-    
-    for b1, b2 in biases:
-        variables.append(b1)
-        variables.append(b2)
+            w_fc_2 = utils.get_variable([num_features//2, 1], "w_fc_2")
+            b_fc_2 = utils.bias_variable([1], "b_fc_2")
+            logit_fc_2 = tf.matmul(logit_fc_1, w_fc_2) + b_fc_2
         
-    return output_image_corrected, variables
+        return logit_fc_2
 
-
-class CnnUnet(object):
+            
+class CnnUnet_GAN(object):
     """
     Implementation of Unet.
     
@@ -166,41 +170,57 @@ class CnnUnet(object):
     :param y_channels: number of channels in output image
     """
     
-    def __init__(self, x_channels, y_channels, layers, feature_base, create_summary=True):
+    def __init__(self, x_channels, y_channels, layers_gen, layers_disc, feature_base_gen, feature_base_disc, create_summary=True):
         tf.reset_default_graph()
         
         self.x =    tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
         self.y =    tf.placeholder("float", shape=[None, None, None, y_channels], name="y")
         self.mask = tf.placeholder("float", shape=[None, None, None], name="mask")
-    
+        
         self.keep_prob = tf.placeholder("float", name="dropout_probability")
         
         self.x_channels = x_channels
         self.y_channels = y_channels
         self.create_summary = create_summary
         
-        output_image, self.variables = create_conv_network(x= self.x,
-                                                           mask = self.mask,
-                                                           channels_x= x_channels,
-                                                           channels_y= y_channels,
-                                                           layers= layers,
-                                                           feature_base= feature_base,
-                                                           keep_prob=self.keep_prob,
-                                                           create_summary= create_summary)
+        fake_output= create_generator_network(x= self.x,
+                                              channels_x= x_channels,
+                                              channels_y= y_channels,
+                                              layers= layers_gen,
+                                              feature_base= feature_base_gen,
+                                              keep_prob=self.keep_prob,
+                                              create_summary= create_summary)
         
-        self.cost = self.__get_cost(output_image)
-        self.gradients_node = tf.gradients(self.cost, self.variables)
+        
+        real_logit = create_discriminator_network(self.y, y_channels, layers=layers_disc, feature_base=feature_base_disc, keep_prob=self.keep_prob)
+        fake_logit = create_discriminator_network(fake_output, y_channels, layers=layers_disc, feature_base=feature_base_disc, keep_prob=self.keep_prob, reuse=True)
+        
+        self.cost_discriminator = self.__get_cost_discriminator(real_logit, fake_logit)
+        self.cost_generator = self.__get_cost_generator(fake_logit, fake_output)
+        
+        self.generator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope="GAN/Generator")
+        self.discriminator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope="GAN/Discriminator")
+
+        self.gradients_node_generator = tf.gradients(self.cost_generator, self.generator_vars)
+        self.gradients_node_discriminator = tf.gradients(self.cost_discriminator, self.discriminator_vars)
         
         with tf.name_scope("resuts"):
-            self.predictor = output_image
+            self.predictor = fake_output
     
-    def __get_cost(self, output_image, regulizer=0):
-        with tf.name_scope("cost"):
-            loss = tf.losses.mean_squared_error(self.y, output_image, reduction=tf.losses.Reduction.SUM_BY_NONZERO_WEIGHTS)
-            if regulizer !=0:
-                regularizers = sum([tf.nn.l2_loss(variable) for variable in self.variables])
-                loss += regulizer*regularizers
-        return loss
+    def __get_cost_discriminator(self, real_logit, fake_logit):
+        with tf.name_scope("cost_discriminator"):
+            loss = tf.reduce_mean(\
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=real_logit,labels=tf.ones_like(real_logit)) +\
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit,labels=tf.zeros_like(fake_logit)))
+            
+            return loss
+        
+    def __get_cost_generator(self, fake_logit, fake_output):
+        with tf.name_scope("cost_generator"):
+            loss_mse = tf.losses.mean_squared_error(self.y, fake_output, reduction=tf.losses.Reduction.SUM_BY_NONZERO_WEIGHTS)
+            loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit, labels=tf.ones_like(fake_logit)))
+        return loss_gen + loss_mse
+    
     
     def predict(self, model_path, test_image, test_mask):
         init = tf.global_variables_initializer()
@@ -254,28 +274,38 @@ class Trainer(object):
         self.batch_size = batch_size
         self.validation_batch_size = validation_batch_size
         self.create_train_summary = create_train_summary
-    
-    def __get_optimizer(self, global_step):
         # we choose adam optimezer for this problem.
         learning_rate = 0.0001
         self.learning_rate_node = tf.Variable(learning_rate, name="learning_rate")
-        
+    
+    def __get_optimizer_generator(self, global_step):        
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node)\
-                            .minimize(self.net.cost, global_step=global_step)
+                            .minimize(self.net.cost_generator, var_list= self.net.generator_vars ,global_step=global_step)
 
         return optimizer
     
+    def __get_optimizer_discriminator(self, global_step):
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node)\
+                            .minimize(self.net.cost_discriminator, var_list= self.net.discriminator_vars, global_step=global_step)
+        return optimizer
+    
     def __initialize(self, output_path, restore, prediction_path):
-        global_step = tf.Variable(0, name="global_step")
+        global_step_gen = tf.Variable(0, name="global_step_generator")
+        global_step_disc= tf.Variable(0, name="globa_step_discriminator")
         
-        self.norm_gradients_node = tf.Variable(tf.constant(0.0, shape=[len(self.net.gradients_node)]), name="norm_gradient")
+        self.norm_gradients_node_gen = tf.Variable(tf.constant(0.0, shape=[len(self.net.gradients_node_generator)]), name="norm_gradient_generator")
+        self.norm_gradients_node_disc= tf.Variable(tf.constant(0.0, shape=[len(self.net.gradients_node_discriminator)]), name="norm_gradient_discriminator")
         
         if self.net.create_summary and self.create_train_summary:
-            tf.summary.histogram("norm_gradients", self.norm_gradients_node)
+            tf.summary.histogram("norm_gradient_generator", self.norm_gradients_node_gen)
+            tf.summary.histogram("norm_gradient_discriminator", self.norm_gradients_node_disc)
             
-        tf.summary.scalar("loss", self.net.cost)
+        tf.summary.scalar("loss_generator", self.net.cost_generator)
+        tf.summary.scalar("loss_discriminator", self.net.cost_discriminator)
         
-        self.optimizer = self.__get_optimizer(global_step)
+        self.optimizer_generator = self.__get_optimizer_generator(global_step_gen)
+        self.optimizer_discriminator = self.__get_optimizer_discriminator(global_step_disc)
+        
         tf.summary.scalar("learning_rate", self.learning_rate_node)
         
         
@@ -304,33 +334,29 @@ class Trainer(object):
     
     def store_prediction(self, sess, batch_x, batch_y, masks, name):
         prediction = sess.run(self.net.predictor, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: masks, self.net.keep_prob: 1.})
-        loss = sess.run(self.net.cost, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: masks, self.net.keep_prob: 1.})
+        loss_gen, loss_disc = sess.run((self.net.cost_generator, self.net.cost_discriminator), feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: masks, self.net.keep_prob: 1.})
         
-        logging.info("Validaiton loss = {:.4f}".format(loss))
-        
+        logging.info("Generator loss = {}, Discriminator loss = {}".format(loss_gen, loss_disc))
         prediction_folder = os.path.join(self.prediction_path, name)
         
         if os.path.exists(prediction_folder):
             shutil.rmtree(prediction_folder, ignore_errors=True)
-            
-        os.mkdir(prediction_folder)
-        utils.save_predictions(batch_x, batch_y, prediction, masks, prediction_folder)
         
+        os.mkdir(prediction_folder)
+        utils.save_predictions_metric(batch_x, batch_y, prediction, masks, prediction_folder)
     
     def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y, batch_mask):
         # Calculate batch loss and accuracy
-        summary_str, loss, predictions = sess.run((self.summary_all, self.net.cost, self.net.predictor),
-                                                  feed_dict={self.net.x: batch_x, self.net.y: batch_y, self.net.mask: batch_mask, self.net.keep_prob: 1.})
+        summary_str, loss_gen, loss_disc = sess.run((self.summary_all, self.net.cost_generator, self.net.cost_discriminator),
+                                                    feed_dict={self.net.x: batch_x, self.net.y: batch_y, self.net.mask: batch_mask, self.net.keep_prob: 1.})
         
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
-        logging.info("Iter {:}, Minibatch Loss= {:.16f}".format(step, loss))
+        logging.info("Iter {:}, Minibatch Loss: Generator = {:.16f}, Discriminator = {:.16f}".format(step, loss_gen, loss_disc))
         
-        
-    def output_epoch_stats(self, epoch, loss, lr):
+    def output_epoch_stats(self, epoch, loss_gen, loss_disc, lr):
         logging.info(
-            "Epoch {:}, loss: {:.16f}, learning rate: {:.8f}".format(epoch, loss, lr))
-
+            "Epoch {:}, Loss Generator = {:.16f}, Loss Discriminator = {:.16f}, learning rate: {:.8f}".format(epoch, loss_gen, loss_disc, lr))
     
     def train(self, data_provider_train, data_provider_validation,
               output_path,
@@ -379,18 +405,24 @@ class Trainer(object):
             for epoch in range(epochs):
                 print(epoch)
                 for step, (batch_x, batch_y, batch_mask) in enumerate(data_provider_train(self.batch_size)):
-                    _, loss, lr, gradients = sess.run((self.optimizer, self.net.cost, self.learning_rate_node, self.net.gradients_node),
+                    _, loss_gen, lr, gradients_gen = sess.run((self.optimizer_generator, self.net.cost_generator, self.learning_rate_node, self.net.gradients_node_generator),
+                                                      feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: batch_mask, self.net.keep_prob: keep_prob})
+                    
+                    _, loss_disc, lr, gradients_disc = sess.run((self.optimizer_discriminator, self.net.cost_discriminator, self.learning_rate_node, self.net.gradients_node_discriminator),
                                                       feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: batch_mask, self.net.keep_prob: keep_prob})
                     
                     if self.net.create_summary and self.create_train_summary:
-                        gradients_norm = [np.linalg.norm(gradient) for gradient in gradients]
-                        self.norm_gradients_node.assign(gradients_norm).eval()
+                        gradients_norm_ = [np.linalg.norm(gradient) for gradient in gradients_gen]
+                        self.norm_gradients_node_gen.assign(gradients_norm_).eval()
+                        
+                        gradients_norm_ = [np.linalg.norm(gradient) for gradient in gradients_disc]
+                        self.norm_gradients_node_disc.assign(gradients_norm_).eval()
                         
                     if step % display_step == 0:
                         self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y, batch_mask)
                     step_counter +=1
                         
-                self.output_epoch_stats(epoch, loss, lr)
+                self.output_epoch_stats(epoch, loss_gen, loss_disc, lr)
                 self.store_prediction(sess, test_x, test_y, masks, "epoch_{}".format(epoch))
                 save_path = self.net.save(sess, save_path)
                 

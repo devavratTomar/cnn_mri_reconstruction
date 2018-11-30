@@ -7,25 +7,30 @@ import numpy as np
 from skimage import io
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import logging
 from skimage.measure import compare_ssim as ssim
 
 LAMBDA = 2
+
+def get_variable(shape, name):
+    return tf.get_variable(name, shape)
 
 def padding_circular(x, padding):
     out = tf.concat([x[:, -padding:, :, :], x, x[:, 0:padding, :, :]], axis=1)
     out = tf.concat([out[:, :, -padding:, :], out, out[:, :, 0:padding, :]], axis=2)  
     return out
-    
-def weight_variable(shape, stddev, name):
+
+## TODO: Check if the default initialization is better
+def weight_variable(shape,stddev, name):
     initial = tf.truncated_normal(shape, stddev=stddev)
-    return tf.Variable(initial, name=name)
+    return tf.get_variable(name, initializer=initial)
 
 def weight_variable_devonc(shape, stddev, name):
-    return tf.Variable(tf.truncated_normal(shape, stddev=stddev), name=name)
+    return tf.get_variable(name, initializer=tf.truncated_normal(shape, stddev=stddev))
 
 def bias_variable(shape, name):
     initial = tf.constant(0.1, shape=shape)
-    return tf.Variable(initial, name=name)
+    return tf.get_variable(name, initializer=initial)
 
 def conv2d_dilated(x, W, b, keep_prob, dilation):
     padding = ((tf.shape(W)[0] - 1)//2)*dilation
@@ -96,28 +101,28 @@ def save_predictions(input_image, ground_truth, prediction, masks, folder):
         img = np.clip(img, 0, 1)
         io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)
                 
-def save_predictions_after_transform(input_image, ground_truth, prediction, folder):
+def save_predictions_metric(input_image, ground_truth, prediction, masks, folder):
     for image_iter in range(ground_truth.shape[0]):
-        im_fft = input_image[image_iter]
+        im = input_image[image_iter]
         gt = ground_truth[image_iter]
         pd = prediction[image_iter]
         gt_cmplx = gt[:,:,0] + 1j* gt[:,:,1] # ground truth complex(image domain)
         pd_cmplx = pd[:,:,0] + 1j* pd[:,:,1] # prediction complex(image domain) 
-        im_fft_cmplx = im_fft[:,:,0] + 1j*im_fft[:,:,1]
+        im_cmplx = im[:,:,0] + 1j* im[:,:,1]
         
-        img = np.concatenate((get_abs_complex(np.fft.ifft2(im_fft_cmplx)),
+        img = np.concatenate((get_abs_complex(im_cmplx),
                               get_abs_complex(gt_cmplx),
                               get_abs_complex(pd_cmplx)), axis=1)
 
         metrics = get_error_metrics(gt_cmplx, pd_cmplx)
-
-        print('SSIM: {:.3f}, SNR: {:.1f}, PSNR: {:.2f}, l2-error: {:.3f}, l1-error: {:.3f}'.format(metrics[0], \
-                                                                                              metrics[1],
-                                                                                              metrics[2],
-                                                                                              metrics[3],
-                                                                                              metrics[4]))
-        # TODO(mfsahin): save the reconstructed image to a folder and performance metrics
-        # to a .csv file along with subsampling rates.
+        metric_str = "SSIM: {:.3f}, SNR: {:.1f}, PSNR: {:.2f}, l2-error: {:.3f}, l1-error: {:.3f}\n".format(metrics[0],\
+                     metrics[1],
+                     metrics[2],
+                     metrics[3],
+                     metrics[4])
+        with open('metrics.txt','a') as f:
+            f.write(str(image_iter) + ' : '+ metric_str)
+        
         img = np.clip(img, 0, 1)
         io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)      
 
@@ -130,8 +135,8 @@ def get_error_metrics(f, I):
     N = f.size
     
     # convert the images into single precision
-    f = np.abs(np.float32(f)) 
-    I = np.abs(np.float32(I))
+    f = np.abs(f) 
+    I = np.abs(I)
     
     # TODO(mfsahin): double check this metrics
     l2_error = np.linalg.norm(f - I, 'fro')
