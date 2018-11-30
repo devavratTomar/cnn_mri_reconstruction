@@ -63,7 +63,7 @@ def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=6
                 w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
                 
                 b1 = utils.bias_variable([features//2], "b1")
-                b2 = utils.bias_variable([features//2], "b2")
+                b2 = utils.bias_variable([features], "b2")
                 b3 = utils.bias_variable([features], "b3")
                 
                 if layer == 0:
@@ -102,7 +102,7 @@ def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=6
             
         weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
         bias = utils.bias_variable([channels_y], "out_bias")
-        output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False), x_image)
+        output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False)
         
         return output_image
 
@@ -135,7 +135,7 @@ def create_discriminator_network(x, channels_x, layers=6, feature_base=16, keep_
                 w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
                 
                 b1 = utils.bias_variable([features//2], "b1")
-                b2 = utils.bias_variable([features//2], "b2")
+                b2 = utils.bias_variable([features], "b2")
                 b3 = utils.bias_variable([features], "b3")
                 
                 if layer == 0:
