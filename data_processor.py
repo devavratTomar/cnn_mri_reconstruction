@@ -38,7 +38,7 @@ class DataProvider(object):
             images_output.append(_data[:,:,[2,3]])
             masks.append(np.fft.fftshift(_data[:,:,4]) + 0.)
         
-        return np.array(images_input), np.array(images_output), np.array(masks)
+        return np.array(images_input), np.array(images_output), np.array(masks)[:,:,:, np.newaxis]
     
     def get_images_iter(self, batch_size):
         """
@@ -59,7 +59,7 @@ class DataProvider(object):
                     images_input.append(_data[:,:,[0,1]])
                     images_output.append(_data[:,:,[2,3]])
                     masks.append(np.fft.fftshift(_data[:,:,4]) + 0.)
-                yield np.array(images_input), np.array(images_output), np.array(masks)
+                yield np.array(images_input), np.array(images_output), np.array(masks)[:,:,:, np.newaxis]
                 
     def get_sample_images_with_mask(self, number_images):
         images_input = []
@@ -71,4 +71,4 @@ class DataProvider(object):
             images_input.append(_data[:,:, [2, 3]])
             images_output.append(_data[:,:, [0, 1]])
             mask_input.append(_data[:,:, [4, 5]])
-        return np.array(images_input), np.array(images_output), np.array(mask_input)
+        return np.array(images_input), np.array(images_output), np.array(mask_input)[:,:,:, np.newaxis]

@@ -32,7 +32,7 @@ def get_mask(N, strip_width=8):
 def create_input_image(image, mask):
     image_fft = np.fft.fft2(image)
     out = image_fft*np.fft.fftshift(mask)   
-    return out
+    return np.fft.ifft2(out)
 
 def create_output_image(image, mask, lambda_):
     image_fft = np.fft.fftshift(np.fft.fft2(image))
@@ -44,15 +44,18 @@ def load_mat_data(file_name):
 
 def augment_data(image):
     # rotate the image by 90 degress
-    image_1 = ndimage.rotate(np.real(image),  90) + 1j*ndimage.rotate(np.imag(image), 90)
-    image_2 = ndimage.rotate(np.real(image), 180) + 1j*ndimage.rotate(np.imag(image), 180)
-    image_3 = ndimage.rotate(np.real(image), 270) + 1j*ndimage.rotate(np.imag(image), 270)
-    image_4 = ndimage.rotate(np.real(image), 360) + 1j*ndimage.rotate(np.imag(image), 360)
+    image_1 = ndimage.rotate(np.real(image),  45, reshape=False) + 1j*ndimage.rotate(np.imag(image),  45, reshape=False)
+    image_2 = ndimage.rotate(np.real(image),  90, reshape=False) + 1j*ndimage.rotate(np.imag(image),  90, reshape=False)
+    image_3 = ndimage.rotate(np.real(image), 135, reshape=False) + 1j*ndimage.rotate(np.imag(image), 135, reshape=False)
+    image_4 = ndimage.rotate(np.real(image), 180, reshape=False) + 1j*ndimage.rotate(np.imag(image), 180, reshape=False)
+    image_5 = ndimage.rotate(np.real(image), 225, reshape=False) + 1j*ndimage.rotate(np.imag(image), 225, reshape=False)
+    image_6 = ndimage.rotate(np.real(image), 270, reshape=False) + 1j*ndimage.rotate(np.imag(image), 270, reshape=False)
+    image_7 = ndimage.rotate(np.real(image), 315, reshape=False) + 1j*ndimage.rotate(np.imag(image), 315, reshape=False)
     
     # mirror flipping
-    image_5 = np.flip(image, axis=0)
-    image_6 = np.flip(image, axis=1)    
-    return [image_1, image_2, image_3, image_4, image_5, image_6]
+    image_8 = np.flip(image, axis=0)
+    image_9 = np.flip(image, axis=1)    
+    return [image, image_1, image_2, image_3, image_4, image_5, image_6, image_7, image_8, image_9]
 
 def process_save_mat_data(images, output_folder, strip_width=8):
     n_images, N, M = images.shape

@@ -15,7 +15,7 @@ IMAGE_SIZE = 256
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=64, keep_prob=0.8, reuse=False, create_summary=True):
+def create_generator_network(x, channels_x, channels_y, layers=3, feature_base=64, keep_prob=0.8, reuse=False, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 4 channels.
@@ -28,6 +28,7 @@ def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=6
     """
     FILTER_SIZE_DEF = 3
     FILTER_SIZE_DIL = 5
+    
     with tf.variable_scope("GAN/Generator",reuse=reuse):
         logging.info("Layers: {layers}, features: {features} input channels {in_channels}, output channels {out_channels}".format(
                       layers=layers,
@@ -70,7 +71,6 @@ def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=6
                 else:
                     conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
                 
-#                conv_2 = tf.nn.leaky_relu(utils.conv2d_dilated(conv_1, w2, b2, keep_prob, dilation=2))
                 conv_2 = tf.nn.leaky_relu(utils.conv2d(conv_1, w2, b2, keep_prob, stride=1))
                 conv_3 = tf.nn.leaky_relu(utils.conv2d(conv_2, w3, b3, keep_prob, stride=1))
                 
@@ -103,18 +103,18 @@ def create_generator_network(x, channels_x, channels_y, layers=4, feature_base=6
         bias = utils.bias_variable([channels_y], "out_bias")
         
         output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False), x_image)
-        output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
-    
-        output_image_complex_ifft = tf.spectral.ifft2d(output_image_complex)
-        output_image_complex_ifft = tf.reshape(output_image_complex_ifft, tf.stack([-1, n, m, 1]))
-        output_image_corrected = tf.concat([tf.real(output_image_complex_ifft), tf.imag(output_image_complex_ifft)], axis=3)
         
-        return output_image_corrected
+        output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
+        output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
+        output_image_complex_fft = tf.reshape(output_image_complex_fft, tf.stack([-1, n, m, 1]))
+        
+        output_image_corrected = tf.concat([tf.real(output_image_complex_fft), tf.imag(output_image_complex_fft)], axis=3)
+        
+        return output_image, output_image_corrected
 
 
-def create_discriminator_network(x, channels_x, layers=6, feature_base=16, keep_prob=0.8, reuse=False, create_summary=True):
-    FILTER_SIZE_DEF = 3
-    FILTER_SIZE_DIL = 5
+def create_discriminator_network(x, channels_x, feature_base=64, keep_prob=0.8, reuse=False, create_summary=True):
+    FILTER_SIZE = 3
     
     with tf.variable_scope("GAN/Discriminator",reuse=reuse):
         n = tf.shape(x)[1]
@@ -123,50 +123,81 @@ def create_discriminator_network(x, channels_x, layers=6, feature_base=16, keep_
         x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
         input_node = x_image
         
-        for layer in range(layers):
-            with tf.variable_scope("conv_layer{}".format(str(layer))):
-                features = (2**layer)*feature_base
-                std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features//2)))
-                std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features//2)))
-                std_dev_3 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
-                
-                if  layer == 0:
-                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
-                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
-                else:
-                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
-                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
-                    
-                w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
-                
-                b1 = utils.bias_variable([features//2], "b1")
-                b2 = utils.bias_variable([features], "b2")
-                b3 = utils.bias_variable([features], "b3")
-                
-                if layer == 0:
-                    conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=1))
-                else:
-                    conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
-                
-                conv_2 = tf.nn.leaky_relu(utils.conv2d(conv_1, w2, b2, keep_prob, stride=1))
-                conv_3 = tf.nn.leaky_relu(utils.conv2d(conv_2, w3, b3, keep_prob, stride=1))
-                input_node = conv_3
+        ## First Layer has 3 sub layer, feature_base neurons each layer, stride 2 
+        ## Second Layer has 2 sub layer, 2*feature_base neurons each layer
+        ## Third Layer has 1 sub layer, 4* features_base neurons each layer
+        ## Final conv layer, 4*features_base neurons each layer
         
-        num_features = (IMAGE_SIZE//(2**layer))*(IMAGE_SIZE//(2**layer))*features
-        # flatten final layer and add FC layer
-        with tf.variable_scope("FC_layer"):
-            final_flatten_input = tf.reshape(input_node, [-1, num_features])
-
-            w_fc_1 = utils.get_variable([num_features, num_features//2], "w_fc_1")
-            b_fc_1 = utils.bias_variable([num_features//2], "b_fc_1")
-            logit_fc_1 = tf.nn.leaky_relu(tf.matmul(final_flatten_input, w_fc_1) + b_fc_1)
+        ## 2 FC layers
+        
+        with tf.variable_scope("conv_layer"):
+            std_dev = np.sqrt(2./(FILTER_SIZE*FILTER_SIZE*feature_base))
             
-            w_fc_2 = utils.get_variable([num_features//2, 1], "w_fc_2")
-            b_fc_2 = utils.bias_variable([1], "b_fc_2")
-            logit_fc_2 = tf.matmul(logit_fc_1, w_fc_2) + b_fc_2
-        
-        return logit_fc_2
+            # Layer 0
+            w1_0 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, channels_x, feature_base], std_dev, "w1_layer0")
+            b1_0 = utils.bias_variable([feature_base], "b1_layer0")
+            
+            w2_0 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, feature_base, feature_base], std_dev, "w2_layer0")
+            b2_0 = utils.bias_variable([feature_base], "b2_layer0")
+            
+            w3_0 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, feature_base, feature_base], std_dev, "w3_layer0")
+            b3_0 = utils.bias_variable([feature_base], "b3_layer0")
+            
+            conv1_0 = tf.nn.leaky_relu(utils.conv2d(input_node, w1_0, b1_0, keep_prob, stride=1))
+            conv2_0 = tf.nn.leaky_relu(utils.conv2d(conv1_0, w2_0, b2_0, keep_prob, stride=1))
+            conv3_0 = tf.nn.leaky_relu(utils.conv2d(conv2_0, w3_0, b3_0, keep_prob, stride=1))
+            
+            # max pool and reduce dimension by 2
+            pool0 = utils.max_pool(conv3_0, 2)
+            
+            # Layer 1
+            w1_1 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, feature_base, 2*feature_base], std_dev, "w1_layer1")
+            b1_1 = utils.bias_variable([2*feature_base], "b1_layer1")            
 
+            w2_1 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, 2*feature_base, 2*feature_base], std_dev, "w2_layer1")
+            b2_1 = utils.bias_variable([2*feature_base], "b2_layer1")
+            
+            conv1_1 = tf.nn.leaky_relu(utils.conv2d(pool0, w1_1, b1_1, keep_prob, stride=2))
+            conv2_1 = tf.nn.leaky_relu(utils.conv2d(conv1_1, w2_1, b2_1, keep_prob, stride=1))
+            
+            # max pool and reduce dimension by 2
+            pool1 = utils.max_pool(conv2_1, 2)
+            
+            # Layer 2
+            w1_2 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, 2*feature_base, 4*feature_base], std_dev, "w1_layer2")
+            b1_2 = utils.bias_variable([4*feature_base], "b1_layer2")
+            
+            conv1_2 = tf.nn.leaky_relu(utils.conv2d(pool1, w1_2, b1_2, keep_prob, stride=2))
+            
+            #max pool and reduce dimension by 2
+            pool2 = utils.max_pool(conv1_2, 2)
+            
+            # Layer 3
+            w1_3 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, 4*feature_base, 4*feature_base], std_dev, "w1_layer3")
+            b1_3 = utils.bias_variable([4*feature_base], "b1_layer3")
+            
+            conv1_3 = tf.nn.leaky_relu(utils.conv2d(pool2, w1_3, b1_3, keep_prob, stride=1))
+            
+            # max pool and reduce dimension by 2
+            pool3 = utils.max_pool(conv1_3, 2)
+            
+            num_features = int((IMAGE_SIZE*IMAGE_SIZE)*feature_base/(2**10))
+            
+            # FC 1
+            flatten_layer = tf.reshape(pool3, [-1, num_features])
+            
+            w_fc_1 = utils.get_variable([num_features, num_features//4], "w_fc_1")
+            b_fc_1 = utils.bias_variable([num_features//4], "b_fc_1")
+            
+            out_fc1 = tf.nn.leaky_relu(tf.matmul(flatten_layer, w_fc_1) + b_fc_1)
+            
+            # FC 2
+            w_fc_2 = utils.get_variable([num_features//4, 1], "w_fc_2")
+            b_fc_2 = utils.bias_variable([1], "b_fc_2")
+            
+            out_fc2 = tf.nn.leaky_relu(tf.matmul(out_fc1, w_fc_2) + b_fc_2)
+            
+            return out_fc2
             
 class CnnUnet_GAN(object):
     """
@@ -176,12 +207,12 @@ class CnnUnet_GAN(object):
     :param y_channels: number of channels in output image
     """
     
-    def __init__(self, x_channels, y_channels, layers_gen, layers_disc, feature_base_gen, feature_base_disc, create_summary=True):
+    def __init__(self, x_channels, y_channels, layers_gen=3, feature_base_gen=64, feature_base_disc=64, create_summary=True):
         tf.reset_default_graph()
         
         self.x =    tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
         self.y =    tf.placeholder("float", shape=[None, None, None, y_channels], name="y")
-        self.mask = tf.placeholder("float", shape=[None, None, None], name="mask")
+        self.mask = tf.placeholder("float", shape=[None, None, None, 1], name="mask")
         
         self.keep_prob = tf.placeholder("float", name="dropout_probability")
         
@@ -189,20 +220,20 @@ class CnnUnet_GAN(object):
         self.y_channels = y_channels
         self.create_summary = create_summary
         
-        fake_output= create_generator_network(x= self.x,
-                                              channels_x= x_channels,
-                                              channels_y= y_channels,
-                                              layers= layers_gen,
-                                              feature_base= feature_base_gen,
-                                              keep_prob=self.keep_prob,
-                                              create_summary= create_summary)
+        fake_output, fake_output_fft = create_generator_network(x= self.x,
+                                                                channels_x= x_channels,
+                                                                channels_y= y_channels,
+                                                                layers= layers_gen,
+                                                                feature_base= feature_base_gen,
+                                                                keep_prob=self.keep_prob,
+                                                                create_summary= create_summary)
         
         
-        real_logit = create_discriminator_network(self.y, y_channels, layers=layers_disc, feature_base=feature_base_disc, keep_prob=self.keep_prob)
-        fake_logit = create_discriminator_network(fake_output, y_channels, layers=layers_disc, feature_base=feature_base_disc, keep_prob=self.keep_prob, reuse=True)
+        real_logit = create_discriminator_network(self.y, y_channels, feature_base=feature_base_disc, keep_prob=self.keep_prob)
+        fake_logit = create_discriminator_network(fake_output, y_channels, feature_base=feature_base_disc, keep_prob=self.keep_prob, reuse=True)
         
         self.cost_discriminator = self.__get_cost_discriminator(real_logit, fake_logit)
-        self.cost_generator = self.__get_cost_generator(fake_logit, fake_output)
+        self.cost_generator = self.__get_cost_generator(fake_logit, fake_output, fake_output_fft)
         
         self.generator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope="GAN/Generator")
         self.discriminator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope="GAN/Discriminator")
@@ -221,11 +252,18 @@ class CnnUnet_GAN(object):
             
             return loss
         
-    def __get_cost_generator(self, fake_logit, fake_output):
+    def __get_cost_generator(self, fake_logit, fake_output, fake_output_fft):
         with tf.name_scope("cost_generator"):
-            loss_mse = tf.losses.mean_squared_error(self.y, fake_output, reduction=tf.losses.Reduction.SUM_BY_NONZERO_WEIGHTS)
+            loss_mse_image = tf.losses.mean_squared_error(self.y, fake_output)
+            
+            input_image_cmplx = tf.complex(self.x[:, :, :, 0], self.x[:, :, :, 1])
+            input_image_fft = tf.reshape(tf.spectral.fft2d(input_image_cmplx), tf.stack([-1, IMAGE_SIZE, IMAGE_SIZE, 1]))
+            
+            loss_mse_fft = tf.losses.mean_squared_error(tf.concat([tf.real(input_image_fft), tf.imag(input_image_fft)], axis=3),\
+                                                        fake_output_fft*self.mask)
             loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit, labels=tf.ones_like(fake_logit)))
-        return loss_gen + loss_mse
+        
+        return loss_gen + 10*loss_mse_image + loss_mse_fft
     
     
     def predict(self, model_path, test_image, test_mask):
