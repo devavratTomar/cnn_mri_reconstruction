@@ -49,20 +49,20 @@ def create_generator_network(x, channels_x, channels_y, layers=3, feature_base=6
         for layer in range(layers):
             with tf.variable_scope("down_conv_layer{}".format(str(layer))):
                 features = (2**layer)*feature_base
-                std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features//2)))
-                std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features//2)))
+                std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features)))
+                std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features)))
                 std_dev_3 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
                 
                 if  layer == 0:
-                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features//2], std_dev_1, "w1")
-                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features, features], std_dev_2, "w2")
                 else:
-                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev_1, "w1")
-                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features//2, features], std_dev_2, "w2")
+                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features], std_dev_1, "w1")
+                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features, features], std_dev_2, "w2")
                     
                 w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
                 
-                b1 = utils.bias_variable([features//2], "b1")
+                b1 = utils.bias_variable([features], "b1")
                 b2 = utils.bias_variable([features], "b2")
                 b3 = utils.bias_variable([features], "b3")
                 
@@ -102,7 +102,7 @@ def create_generator_network(x, channels_x, channels_y, layers=3, feature_base=6
         weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
         bias = utils.bias_variable([channels_y], "out_bias")
         
-        output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False), x_image)
+        output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False)
         
         output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
         output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
