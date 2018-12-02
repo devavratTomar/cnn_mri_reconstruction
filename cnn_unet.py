@@ -15,7 +15,7 @@ IMAGE_SIZE = 256
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_generator_network(x, channels_x, channels_y, layers=3, feature_base=64, keep_prob=0.8, reuse=False, create_summary=True):
+def create_generator_network(x, channels_x, channels_y, layers=3, feature_base=32, keep_prob=0.8, reuse=False, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 4 channels.

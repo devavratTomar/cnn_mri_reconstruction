@@ -7,7 +7,7 @@ data_provider_test = DataProvider(directory_name='./data/test', epochs=0, file_e
 
 u_net = CnnUnet_GAN(x_channels=2, y_channels=2)
 
-trainer = Trainer(u_net, batch_size=5, validation_batch_size=50)
+trainer = Trainer(u_net, batch_size=20, validation_batch_size=50)
 trainer.train(data_provider_train.get_images_iter,
               data_provider_test.get_sample_images,
               'output_gan_version_1',

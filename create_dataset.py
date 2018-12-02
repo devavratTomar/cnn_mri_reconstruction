@@ -44,18 +44,15 @@ def load_mat_data(file_name):
 
 def augment_data(image):
     # rotate the image by 90 degress
-    image_1 = ndimage.rotate(np.real(image),  45, reshape=False) + 1j*ndimage.rotate(np.imag(image),  45, reshape=False)
-    image_2 = ndimage.rotate(np.real(image),  90, reshape=False) + 1j*ndimage.rotate(np.imag(image),  90, reshape=False)
-    image_3 = ndimage.rotate(np.real(image), 135, reshape=False) + 1j*ndimage.rotate(np.imag(image), 135, reshape=False)
-    image_4 = ndimage.rotate(np.real(image), 180, reshape=False) + 1j*ndimage.rotate(np.imag(image), 180, reshape=False)
-    image_5 = ndimage.rotate(np.real(image), 225, reshape=False) + 1j*ndimage.rotate(np.imag(image), 225, reshape=False)
-    image_6 = ndimage.rotate(np.real(image), 270, reshape=False) + 1j*ndimage.rotate(np.imag(image), 270, reshape=False)
-    image_7 = ndimage.rotate(np.real(image), 315, reshape=False) + 1j*ndimage.rotate(np.imag(image), 315, reshape=False)
+    images = [image]
+    
+    for angle in range(10, 360, 10):
+        images.append(ndimage.rotate(np.real(image),  angle, reshape=False) + 1j*ndimage.rotate(np.imag(image),  angle, reshape=False))
     
     # mirror flipping
-    image_8 = np.flip(image, axis=0)
-    image_9 = np.flip(image, axis=1)    
-    return [image, image_1, image_2, image_3, image_4, image_5, image_6, image_7, image_8, image_9]
+    images.append(np.flip(image, axis=0))
+    images.append(np.flip(image, axis=1))    
+    return images
 
 def process_save_mat_data(images, output_folder, strip_width=8):
     n_images, N, M = images.shape
