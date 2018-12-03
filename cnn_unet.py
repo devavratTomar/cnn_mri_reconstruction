@@ -130,7 +130,7 @@ def create_discriminator_network(x, channels_x, feature_base, keep_prob, is_trai
     MINI_FILTER_SIZE = 3
     WIDE_FILTER_SIZE = 7
     
-    with tf.variable_scope("GAN3/Discriminator",reuse=reuse):
+    with tf.variable_scope("GAN/Discriminator",reuse=reuse):
         n = tf.shape(x)[1]
         m = tf.shape(x)[2]
         
@@ -214,9 +214,6 @@ def create_discriminator_network(x, channels_x, feature_base, keep_prob, is_trai
             
             # FC 1
             flatten_layer = tf.reshape(pool3, [-1, num_features])
-            check = tf.layers.flatten(pool3)
-            
-            print(flatten_layer, check)
             
             w_fc_1 = utils.get_variable([num_features, num_features//4], "w_fc_1")
             b_fc_1 = utils.bias_variable([num_features//4], "b_fc_1")
