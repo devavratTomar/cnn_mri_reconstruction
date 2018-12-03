@@ -23,10 +23,10 @@ def padding_circular(x, padding):
 ## TODO: Check if the default initialization is better
 def weight_variable(shape,stddev, name):
     initial = tf.truncated_normal(shape, stddev=stddev)
-    return tf.get_variable(name, initializer=initial)
+    return tf.get_variable(name, shape)
 
 def weight_variable_devonc(shape, stddev, name):
-    return tf.get_variable(name, initializer=tf.truncated_normal(shape, stddev=stddev))
+    return tf.get_variable(name, shape)
 
 def bias_variable(shape, name):
     initial = tf.constant(0.1, shape=shape)

@@ -36,7 +36,7 @@ class DataProvider(object):
             _data = np.load(file_name)
             images_input.append(_data[:,:,[0,1]])
             images_output.append(_data[:,:,[2,3]])
-            masks.append(np.fft.fftshift(_data[:,:,4]) + 0.)
+            masks.append(_data[:,:,4] + 0.)
         
         return np.array(images_input), np.array(images_output), np.array(masks)[:,:,:, np.newaxis]
     
@@ -58,7 +58,7 @@ class DataProvider(object):
                     _data = np.load(file_name)
                     images_input.append(_data[:,:,[0,1]])
                     images_output.append(_data[:,:,[2,3]])
-                    masks.append(np.fft.fftshift(_data[:,:,4]) + 0.)
+                    masks.append(_data[:,:,4] + 0.)
                 yield np.array(images_input), np.array(images_output), np.array(masks)[:,:,:, np.newaxis]
                 
     def get_sample_images_with_mask(self, number_images):
