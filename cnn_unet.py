@@ -311,8 +311,8 @@ class CnnUnet_GAN(object):
         init = tf.global_variables_initializer()
         
         with tf.Session() as sess:
-            # Initialize variables # initialize is_train to True due to bug in tensorflow
-            sess.run(init, {self.is_train: False})
+            # Initialize variables
+            sess.run(init)
             # Restore model weights from previously saved model
             self.restore(sess, model_path)
             
@@ -322,7 +322,7 @@ class CnnUnet_GAN(object):
                                              self.y: y_dummy,
                                              self.mask: test_mask,
                                              self.keep_prob: 1.0,
-                                             self.is_train: False})
+                                             self.is_train: tf.constant(False, dtype=bool)})
             
         return prediction
     
@@ -433,14 +433,14 @@ class Trainer(object):
                                           self.net.y: batch_y,
                                           self.net.mask: masks,
                                           self.net.keep_prob: 1.,
-                                          self.net.is_train: False})
+                                          self.net.is_train: tf.constant(False, dtype=bool)})
         
         loss_gen, loss_disc = sess.run((self.net.cost_generator, self.net.cost_discriminator),
                                        feed_dict= {self.net.x: batch_x,
                                                    self.net.y: batch_y,
                                                    self.net.mask: masks,
                                                    self.net.keep_prob: 1.,
-                                                   self.net.is_train: False})
+                                                   self.net.is_train: tf.constant(False, dtype=bool)})
         
         logging.info("Generator loss = {}, Discriminator loss = {}".format(loss_gen, loss_disc))
         prediction_folder = os.path.join(self.prediction_path, name)
@@ -458,7 +458,7 @@ class Trainer(object):
                                                                self.net.y: batch_y,
                                                                self.net.mask: batch_mask,
                                                                self.net.keep_prob: 1.,
-                                                               self.net.is_train: False})
+                                                               self.net.is_train: tf.constant(False, dtype=bool)})
         
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
@@ -498,8 +498,7 @@ class Trainer(object):
             if write_graph:
                 tf.train.write_graph(sess.graph_def, output_path, "graph.pb")
             
-            ## Initialize is train to true due to a bug in tensorflow. Tf does not initialise bool variables and placeholders.
-            sess.run(init, {self.net.is_train: True})
+            sess.run(init)
             
             if restore:
                 ckpt = tf.train.get_checkpoint_state(output_path)
@@ -521,14 +520,14 @@ class Trainer(object):
                                                                           self.net.y: batch_y,
                                                                           self.net.mask: batch_mask,
                                                                           self.net.keep_prob: keep_prob,
-                                                                          self.net.is_train: True})
+                                                                          self.net.is_train: tf.constant(True, dtype=bool)})
                     
                     _, loss_disc, lr, gradients_disc = sess.run((self.optimizer_discriminator, self.net.cost_discriminator, self.learning_rate_node, self.net.gradients_node_discriminator),
                                                                 feed_dict= {self.net.x: batch_x,
                                                                             self.net.y: batch_y,
                                                                             self.net.mask: batch_mask,
                                                                             self.net.keep_prob: keep_prob,
-                                                                            self.net.is_train: True})
+                                                                            self.net.is_train: tf.constant(True, dtype=bool)})
                     
                     if self.net.create_summary and self.create_train_summary:
                         gradients_norm_ = [np.linalg.norm(gradient) for gradient in gradients_gen]
