@@ -319,7 +319,7 @@ class CnnUnet_GAN(object):
                                              self.y: y_dummy,
                                              self.mask: test_mask,
                                              self.keep_prob: 1.0,
-                                             self.is_train: tf.constant(False, dtype=bool)})
+                                             self.is_train: False})
             
         return prediction
     
