@@ -278,9 +278,6 @@ class CnnUnet_GAN(object):
         
         self.generator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope="GAN/Generator")
         self.discriminator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope="GAN/Discriminator")
-
-        self.gradients_node_generator = tf.gradients(self.cost_generator, self.generator_vars)
-        self.gradients_node_discriminator = tf.gradients(self.cost_discriminator, self.discriminator_vars)
         
         with tf.name_scope("resuts"):
             self.predictor = fake_output
@@ -388,13 +385,6 @@ class Trainer(object):
         global_step_gen = tf.Variable(0, name="global_step_generator")
         global_step_disc= tf.Variable(0, name="globa_step_discriminator")
         
-        self.norm_gradients_node_gen = tf.Variable(tf.constant(0.0, shape=[len(self.net.gradients_node_generator)]), name="norm_gradient_generator")
-        self.norm_gradients_node_disc= tf.Variable(tf.constant(0.0, shape=[len(self.net.gradients_node_discriminator)]), name="norm_gradient_discriminator")
-        
-        if self.net.create_summary and self.create_train_summary:
-            tf.summary.histogram("norm_gradient_generator", self.norm_gradients_node_gen)
-            tf.summary.histogram("norm_gradient_discriminator", self.norm_gradients_node_disc)
-            
         tf.summary.scalar("loss_generator", self.net.cost_generator)
         tf.summary.scalar("loss_discriminator", self.net.cost_discriminator)
         
@@ -433,14 +423,14 @@ class Trainer(object):
                                           self.net.y: batch_y,
                                           self.net.mask: masks,
                                           self.net.keep_prob: 1.,
-                                          self.net.is_train: tf.constant(False, dtype=bool)})
+                                          self.net.is_train: False})
         
         loss_gen, loss_disc = sess.run((self.net.cost_generator, self.net.cost_discriminator),
                                        feed_dict= {self.net.x: batch_x,
                                                    self.net.y: batch_y,
                                                    self.net.mask: masks,
                                                    self.net.keep_prob: 1.,
-                                                   self.net.is_train: tf.constant(False, dtype=bool)})
+                                                   self.net.is_train: False})
         
         logging.info("Generator loss = {}, Discriminator loss = {}".format(loss_gen, loss_disc))
         prediction_folder = os.path.join(self.prediction_path, name)
@@ -458,7 +448,7 @@ class Trainer(object):
                                                                self.net.y: batch_y,
                                                                self.net.mask: batch_mask,
                                                                self.net.keep_prob: 1.,
-                                                               self.net.is_train: tf.constant(False, dtype=bool)})
+                                                               self.net.is_train: False})
         
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
@@ -504,7 +494,7 @@ class Trainer(object):
                 ckpt = tf.train.get_checkpoint_state(output_path)
                 if ckpt and ckpt.model_checkpoint_path:
                     self.net.restore(sess, ckpt.model_checkpoint_path)
-                    
+            
             test_x, test_y, masks = data_provider_validation(self.validation_batch_size)
             self.store_prediction(sess, test_x, test_y, masks, "_init")
             
@@ -515,27 +505,19 @@ class Trainer(object):
             for epoch in range(epochs):
                 print(epoch)
                 for step, (batch_x, batch_y, batch_mask) in enumerate(data_provider_train(self.batch_size)):
-                    _, loss_gen, lr, gradients_gen = sess.run((self.optimizer_generator, self.net.cost_generator, self.learning_rate_node, self.net.gradients_node_generator),
-                                                              feed_dict= {self.net.x: batch_x,
+                    _, loss_gen, lr = sess.run((self.optimizer_generator, self.net.cost_generator, self.learning_rate_node), feed_dict= {self.net.x: batch_x,
                                                                           self.net.y: batch_y,
                                                                           self.net.mask: batch_mask,
                                                                           self.net.keep_prob: keep_prob,
-                                                                          self.net.is_train: tf.constant(True, dtype=bool)})
+                                                                          self.net.is_train: True})
                     
-                    _, loss_disc, lr, gradients_disc = sess.run((self.optimizer_discriminator, self.net.cost_discriminator, self.learning_rate_node, self.net.gradients_node_discriminator),
-                                                                feed_dict= {self.net.x: batch_x,
+                    _, loss_disc, lr = sess.run((self.optimizer_discriminator, self.net.cost_generator, self.learning_rate_node),feed_dict= {self.net.x: batch_x,
                                                                             self.net.y: batch_y,
                                                                             self.net.mask: batch_mask,
                                                                             self.net.keep_prob: keep_prob,
-                                                                            self.net.is_train: tf.constant(True, dtype=bool)})
+                                                                            self.net.is_train: True})
                     
-                    if self.net.create_summary and self.create_train_summary:
-                        gradients_norm_ = [np.linalg.norm(gradient) for gradient in gradients_gen]
-                        self.norm_gradients_node_gen.assign(gradients_norm_).eval()
-                        
-                        gradients_norm_ = [np.linalg.norm(gradient) for gradient in gradients_disc]
-                        self.norm_gradients_node_disc.assign(gradients_norm_).eval()
-                        
+
                     if step % display_step == 0:
                         self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y, batch_mask)
                     step_counter +=1
