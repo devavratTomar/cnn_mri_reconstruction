@@ -207,7 +207,7 @@ class CnnUnet_GAN(object):
     :param y_channels: number of channels in output image
     """
     
-    def __init__(self, x_channels, y_channels, layers_gen=3, feature_base_gen=64, feature_base_disc=64, create_summary=True):
+    def __init__(self, x_channels, y_channels, layers_gen=3, feature_base_gen=32, feature_base_disc=32, create_summary=True):
         tf.reset_default_graph()
         
         self.x =    tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
