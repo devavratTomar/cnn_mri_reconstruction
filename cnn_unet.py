@@ -11,23 +11,24 @@ import os
 import shutil
 
 #TODO: Pass image size as parameter
-IMAGE_SIZE = 256
+IMAGE_SIZE = 128
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_generator_network(x, channels_x, channels_y, layers=3, feature_base=32, keep_prob=0.8, reuse=False, create_summary=True):
+def create_generator_network(x, channels_x, channels_y, layers, feature_base, keep_prob, is_train, reuse=False, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 4 channels.
     :param channels_y: number of channels in the output image. For Mri, output has 2 channels.
     :param layers: number of layers in u-net architecture.
     :param feature_base: Neurons in first layer of cnn. Next layers have twice the number of neurons in previous layers.
-    :param filter_size: size of convolution filter
-    :param pool_size: size of pooling layer
+    :param keep_prob: dropout probability
+    :param is_train: placeholder for telling batch normalization that we are in training phase
+    :param reuse: reuse the network variables
     :create_summary: Creates Tensorboard summary if True
     """
-    FILTER_SIZE_DEF = 3
-    FILTER_SIZE_DIL = 5
+    MINI_FILTER_SIZE = 3
+    WIDE_FILTER_SIZE = 7
     
     with tf.variable_scope("GAN/Generator",reuse=reuse):
         logging.info("Layers: {layers}, features: {features} input channels {in_channels}, output channels {out_channels}".format(
@@ -45,34 +46,38 @@ def create_generator_network(x, channels_x, channels_y, layers=3, feature_base=3
         dw_h_convs = OrderedDict()
         
         # down layers
-        # w1 and w2 operates on input layer. w1 is size 3 and w2 is size 5 with dilation 2. w3 operates on concatenation of w1 and w2.
+        # Use filter mask of 7 for first layer of down layer and filter mask of 3 for rest of the layers.
         for layer in range(layers):
             with tf.variable_scope("down_conv_layer{}".format(str(layer))):
                 features = (2**layer)*feature_base
-                std_dev_1 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*(features)))
-                std_dev_2 = np.sqrt(2./(FILTER_SIZE_DIL*FILTER_SIZE_DIL*(features)))
-                std_dev_3 = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
                 
                 if  layer == 0:
-                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, channels_x,  features], std_dev_1, "w1")
-                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features, features], std_dev_2, "w2")
+                    std_dev = np.sqrt(2./(WIDE_FILTER_SIZE*WIDE_FILTER_SIZE*(features)))
+                    w1 = utils.weight_variable([WIDE_FILTER_SIZE, WIDE_FILTER_SIZE, channels_x, features], std_dev, "w1")
+                    w2 = utils.weight_variable([WIDE_FILTER_SIZE, WIDE_FILTER_SIZE,   features, features], std_dev, "w2")
+                    w3 = utils.weight_variable([WIDE_FILTER_SIZE, WIDE_FILTER_SIZE,   features, features], std_dev, "w3")
                 else:
-                    w1 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features], std_dev_1, "w1")
-                    w2 = utils.weight_variable([FILTER_SIZE_DIL, FILTER_SIZE_DIL, features, features], std_dev_2, "w2")
-                    
-                w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features, features], std_dev_3, "w3")
+                    std_dev = np.sqrt(2./(MINI_FILTER_SIZE*MINI_FILTER_SIZE*(features)))
+                    w1 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, features//2, features], std_dev, "w1")
+                    w2 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE,    features, features], std_dev, "w2")
+                    w3 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE,    features, features], std_dev, "w3")
                 
                 b1 = utils.bias_variable([features], "b1")
                 b2 = utils.bias_variable([features], "b2")
                 b3 = utils.bias_variable([features], "b3")
                 
                 if layer == 0:
-                    conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=1))
+                    conv_1 = utils.conv2d(input_node, w1, b1, keep_prob, stride=1)
                 else:
-                    conv_1 = tf.nn.leaky_relu(utils.conv2d(input_node, w1, b1, keep_prob, stride=2))
+                    conv_1 = utils.conv2d(input_node, w1, b1, keep_prob, stride=2)
                 
-                conv_2 = tf.nn.leaky_relu(utils.conv2d(conv_1, w2, b2, keep_prob, stride=1))
-                conv_3 = tf.nn.leaky_relu(utils.conv2d(conv_2, w3, b3, keep_prob, stride=1))
+                conv_1 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv_1, training=is_train))
+                
+                conv_2 = utils.conv2d(conv_1, w2, b2, keep_prob, stride=1)
+                conv_2 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv_2, training=is_train))
+                
+                conv_3 = utils.conv2d(conv_2, w3, b3, keep_prob, stride=1)
+                conv_3 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv_3, training=is_train))
                 
                 dw_h_convs[layer] = conv_3
                 input_node = dw_h_convs[layer]
@@ -81,28 +86,36 @@ def create_generator_network(x, channels_x, channels_y, layers=3, feature_base=3
         for layer in range(layers - 2, -1, -1):
             with tf.variable_scope("up_conv_layer{}".format(str(layer))):
                 features = (2**(layer + 1))*feature_base
-                std_dev = np.sqrt(2./(FILTER_SIZE_DEF*FILTER_SIZE_DEF*features))
+                std_dev = np.sqrt(2./(MINI_FILTER_SIZE*MINI_FILTER_SIZE*features))
                 
-                w1 = utils.weight_variable_devonc([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features], std_dev, "w1")
+                w1 = utils.weight_variable_devonc([MINI_FILTER_SIZE, MINI_FILTER_SIZE, features//2, features], std_dev, "w1")
                 b1 = utils.bias_variable([features//2], "b1")
                 
-                h_deconv = tf.nn.leaky_relu(utils.deconv2d(input_node, w1, 2) + b1)
-                h_deconv_sum = tf.add(dw_h_convs[layer], h_deconv)
+                h_deconv = utils.deconv2d(input_node, w1, 2) + b1
+                h_deconv = tf.nn.leaky_relu(tf.layers.batch_normalization(h_deconv, training=is_train))
                 
-                w2 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev, "w2")
-                w3 = utils.weight_variable([FILTER_SIZE_DEF, FILTER_SIZE_DEF, features//2, features//2], std_dev, "w3")
+                h_deconv_sum = 0.5*tf.add(dw_h_convs[layer], h_deconv)
+                
+                w2 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, features//2, features//2], std_dev, "w2")
+                w3 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, features//2, features//2], std_dev, "w3")
                 b2 = utils.bias_variable([features//2], "b2")
                 b3 = utils.bias_variable([features//2], "b3")
                 
                 conv_2 = utils.conv2d(h_deconv_sum, w2, b2, keep_prob, stride=1)
-                conv_3 = utils.conv2d(tf.nn.leaky_relu(conv_2), w3, b3, keep_prob, stride=1)
+                conv_2 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv_2, training=is_train))
                 
-                input_node = tf.nn.leaky_relu(conv_3)
+                conv_3 = utils.conv2d(conv_2, w3, b3, keep_prob, stride=1)
+                conv_3 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv_3, training=is_train))
+                
+                input_node = conv_3
             
         weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
         bias = utils.bias_variable([channels_y], "out_bias")
         
         output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False)
+        
+        #TODO: Should we add input to the final reconstruction?
+        output_image = tf.nn.tanh(output_image)
         
         output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
         output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
@@ -113,10 +126,11 @@ def create_generator_network(x, channels_x, channels_y, layers=3, feature_base=3
         return output_image, output_image_corrected
 
 
-def create_discriminator_network(x, channels_x, feature_base=64, keep_prob=0.8, reuse=False, create_summary=True):
-    FILTER_SIZE = 3
+def create_discriminator_network(x, channels_x, feature_base, keep_prob, is_train, reuse=False, create_summary=True):
+    MINI_FILTER_SIZE = 3
+    WIDE_FILTER_SIZE = 7
     
-    with tf.variable_scope("GAN/Discriminator",reuse=reuse):
+    with tf.variable_scope("GAN3/Discriminator",reuse=reuse):
         n = tf.shape(x)[1]
         m = tf.shape(x)[2]
         
@@ -131,60 +145,78 @@ def create_discriminator_network(x, channels_x, feature_base=64, keep_prob=0.8, 
         ## 2 FC layers
         
         with tf.variable_scope("conv_layer"):
-            std_dev = np.sqrt(2./(FILTER_SIZE*FILTER_SIZE*feature_base))
+            std_dev = np.sqrt(2./(WIDE_FILTER_SIZE*WIDE_FILTER_SIZE*feature_base))
             
             # Layer 0
-            w1_0 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, channels_x, feature_base], std_dev, "w1_layer0")
+            w1_0 = utils.weight_variable([WIDE_FILTER_SIZE, WIDE_FILTER_SIZE, channels_x, feature_base], std_dev, "w1_layer0")
             b1_0 = utils.bias_variable([feature_base], "b1_layer0")
             
-            w2_0 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, feature_base, feature_base], std_dev, "w2_layer0")
+            w2_0 = utils.weight_variable([WIDE_FILTER_SIZE, WIDE_FILTER_SIZE, feature_base, feature_base], std_dev, "w2_layer0")
             b2_0 = utils.bias_variable([feature_base], "b2_layer0")
             
-            w3_0 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, feature_base, feature_base], std_dev, "w3_layer0")
+            w3_0 = utils.weight_variable([WIDE_FILTER_SIZE, WIDE_FILTER_SIZE, feature_base, feature_base], std_dev, "w3_layer0")
             b3_0 = utils.bias_variable([feature_base], "b3_layer0")
             
-            conv1_0 = tf.nn.leaky_relu(utils.conv2d(input_node, w1_0, b1_0, keep_prob, stride=1))
-            conv2_0 = tf.nn.leaky_relu(utils.conv2d(conv1_0, w2_0, b2_0, keep_prob, stride=1))
-            conv3_0 = tf.nn.leaky_relu(utils.conv2d(conv2_0, w3_0, b3_0, keep_prob, stride=1))
+            conv1_0 = utils.conv2d(input_node, w1_0, b1_0, keep_prob, stride=1)
+            conv1_0 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv1_0, training=is_train))
+            
+            conv2_0 = utils.conv2d(conv1_0, w2_0, b2_0, keep_prob, stride=1)
+            conv2_0 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv2_0, training=is_train))
+            
+            conv3_0 = utils.conv2d(conv2_0, w3_0, b3_0, keep_prob, stride=1)
+            conv3_0 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv3_0, training=is_train))
             
             # max pool and reduce dimension by 2
             pool0 = utils.max_pool(conv3_0, 2)
             
             # Layer 1
-            w1_1 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, feature_base, 2*feature_base], std_dev, "w1_layer1")
+            std_dev = np.sqrt(2./(MINI_FILTER_SIZE*MINI_FILTER_SIZE*2*feature_base))
+            
+            w1_1 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, feature_base, 2*feature_base], std_dev, "w1_layer1")
             b1_1 = utils.bias_variable([2*feature_base], "b1_layer1")            
 
-            w2_1 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, 2*feature_base, 2*feature_base], std_dev, "w2_layer1")
+            w2_1 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, 2*feature_base, 2*feature_base], std_dev, "w2_layer1")
             b2_1 = utils.bias_variable([2*feature_base], "b2_layer1")
             
-            conv1_1 = tf.nn.leaky_relu(utils.conv2d(pool0, w1_1, b1_1, keep_prob, stride=2))
-            conv2_1 = tf.nn.leaky_relu(utils.conv2d(conv1_1, w2_1, b2_1, keep_prob, stride=1))
+            conv1_1 = utils.conv2d(pool0, w1_1, b1_1, keep_prob, stride=1)
+            conv1_1 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv1_1, training=is_train))
+            
+            conv2_1 = utils.conv2d(conv1_1, w2_1, b2_1, keep_prob, stride=1)
+            conv2_1 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv2_1, training=is_train))
             
             # max pool and reduce dimension by 2
             pool1 = utils.max_pool(conv2_1, 2)
             
             # Layer 2
-            w1_2 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, 2*feature_base, 4*feature_base], std_dev, "w1_layer2")
+            std_dev = np.sqrt(2./(MINI_FILTER_SIZE*MINI_FILTER_SIZE*4*feature_base))
+            
+            w1_2 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, 2*feature_base, 4*feature_base], std_dev, "w1_layer2")
             b1_2 = utils.bias_variable([4*feature_base], "b1_layer2")
             
-            conv1_2 = tf.nn.leaky_relu(utils.conv2d(pool1, w1_2, b1_2, keep_prob, stride=2))
+            conv1_2 = utils.conv2d(pool1, w1_2, b1_2, keep_prob, stride=1)
+            conv1_2 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv1_2, training=is_train))
             
             #max pool and reduce dimension by 2
             pool2 = utils.max_pool(conv1_2, 2)
             
             # Layer 3
-            w1_3 = utils.weight_variable([FILTER_SIZE, FILTER_SIZE, 4*feature_base, 4*feature_base], std_dev, "w1_layer3")
-            b1_3 = utils.bias_variable([4*feature_base], "b1_layer3")
+            std_dev = np.sqrt(2./(MINI_FILTER_SIZE*MINI_FILTER_SIZE*feature_base))
+            w1_3 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, 4*feature_base, feature_base], std_dev, "w1_layer3")
+            b1_3 = utils.bias_variable([feature_base], "b1_layer3")
             
-            conv1_3 = tf.nn.leaky_relu(utils.conv2d(pool2, w1_3, b1_3, keep_prob, stride=1))
+            conv1_3 = utils.conv2d(pool2, w1_3, b1_3, keep_prob, stride=1)
+            conv1_3 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv1_3, training=is_train))
             
             # max pool and reduce dimension by 2
             pool3 = utils.max_pool(conv1_3, 2)
             
-            num_features = int((IMAGE_SIZE*IMAGE_SIZE)*feature_base/(2**10))
+            num_features = int((IMAGE_SIZE*IMAGE_SIZE)*feature_base/(2**8))
             
             # FC 1
             flatten_layer = tf.reshape(pool3, [-1, num_features])
+            check = tf.layers.flatten(pool3)
+            
+            print(flatten_layer, check)
             
             w_fc_1 = utils.get_variable([num_features, num_features//4], "w_fc_1")
             b_fc_1 = utils.bias_variable([num_features//4], "b_fc_1")
@@ -207,7 +239,7 @@ class CnnUnet_GAN(object):
     :param y_channels: number of channels in output image
     """
     
-    def __init__(self, x_channels, y_channels, layers_gen=3, feature_base_gen=32, feature_base_disc=32, create_summary=True):
+    def __init__(self, x_channels, y_channels, layers_gen=3, feature_base_gen=64, feature_base_disc=64, create_summary=True):
         tf.reset_default_graph()
         
         self.x =    tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
@@ -215,6 +247,7 @@ class CnnUnet_GAN(object):
         self.mask = tf.placeholder("float", shape=[None, None, None, 1], name="mask")
         
         self.keep_prob = tf.placeholder("float", name="dropout_probability")
+        self.is_train = tf.placeholder("bool", name="batch_norm_is_train")
         
         self.x_channels = x_channels
         self.y_channels = y_channels
@@ -226,11 +259,22 @@ class CnnUnet_GAN(object):
                                                                 layers= layers_gen,
                                                                 feature_base= feature_base_gen,
                                                                 keep_prob=self.keep_prob,
+                                                                is_train=self.is_train,
                                                                 create_summary= create_summary)
         
         
-        real_logit = create_discriminator_network(self.y, y_channels, feature_base=feature_base_disc, keep_prob=self.keep_prob)
-        fake_logit = create_discriminator_network(fake_output, y_channels, feature_base=feature_base_disc, keep_prob=self.keep_prob, reuse=True)
+        real_logit = create_discriminator_network(self.y,
+                                                  y_channels,
+                                                  feature_base=feature_base_disc,
+                                                  keep_prob=self.keep_prob,
+                                                  is_train=self.is_train)
+        
+        fake_logit = create_discriminator_network(fake_output,
+                                                  y_channels,
+                                                  feature_base=feature_base_disc,
+                                                  keep_prob=self.keep_prob,
+                                                  is_train=self.is_train,
+                                                  reuse=True)
         
         self.cost_discriminator = self.__get_cost_discriminator(real_logit, fake_logit)
         self.cost_generator = self.__get_cost_generator(fake_logit, fake_output, fake_output_fft)
@@ -276,7 +320,12 @@ class CnnUnet_GAN(object):
             self.restore(sess, model_path)
             
             y_dummy = np.empty((test_image.shape[0], test_image.shape[1], test_image.shape[2], self.y_channels))
-            prediction = sess.run(self.predictor, feed_dict={self.x: test_image, self.y: y_dummy, self.mask: test_mask, self.keep_prob: 1.0})
+            prediction = sess.run(self.predictor,
+                                  feed_dict={self.x: test_image,
+                                             self.y: y_dummy,
+                                             self.mask: test_mask,
+                                             self.keep_prob: 1.0,
+                                             self.is_train: False})
             
         return prediction
     
@@ -318,19 +367,24 @@ class Trainer(object):
         self.batch_size = batch_size
         self.validation_batch_size = validation_batch_size
         self.create_train_summary = create_train_summary
+        
         # we choose adam optimezer for this problem.
         learning_rate = 0.0001
         self.learning_rate_node = tf.Variable(learning_rate, name="learning_rate")
     
-    def __get_optimizer_generator(self, global_step):        
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node)\
-                            .minimize(self.net.cost_generator, var_list= self.net.generator_vars ,global_step=global_step)
+    def __get_optimizer_generator(self, global_step):
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node)\
+                                .minimize(self.net.cost_generator, var_list= self.net.generator_vars, global_step=global_step)
 
         return optimizer
     
     def __get_optimizer_discriminator(self, global_step):
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node)\
-                            .minimize(self.net.cost_discriminator, var_list= self.net.discriminator_vars, global_step=global_step)
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node)\
+                                .minimize(self.net.cost_discriminator, var_list= self.net.discriminator_vars, global_step=global_step)
         return optimizer
     
     def __initialize(self, output_path, restore, prediction_path):
@@ -377,8 +431,19 @@ class Trainer(object):
         return init
     
     def store_prediction(self, sess, batch_x, batch_y, masks, name):
-        prediction = sess.run(self.net.predictor, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: masks, self.net.keep_prob: 1.})
-        loss_gen, loss_disc = sess.run((self.net.cost_generator, self.net.cost_discriminator), feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: masks, self.net.keep_prob: 1.})
+        prediction = sess.run(self.net.predictor,
+                              feed_dict= {self.net.x: batch_x,
+                                          self.net.y: batch_y,
+                                          self.net.mask: masks,
+                                          self.net.keep_prob: 1.,
+                                          self.net.is_true: False})
+        
+        loss_gen, loss_disc = sess.run((self.net.cost_generator, self.net.cost_discriminator),
+                                       feed_dict= {self.net.x: batch_x,
+                                                   self.net.y: batch_y,
+                                                   self.net.mask: masks,
+                                                   self.net.keep_prob: 1.,
+                                                   self.net.is_train: False})
         
         logging.info("Generator loss = {}, Discriminator loss = {}".format(loss_gen, loss_disc))
         prediction_folder = os.path.join(self.prediction_path, name)
@@ -392,7 +457,11 @@ class Trainer(object):
     def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y, batch_mask):
         # Calculate batch loss and accuracy
         summary_str, loss_gen, loss_disc = sess.run((self.summary_all, self.net.cost_generator, self.net.cost_discriminator),
-                                                    feed_dict={self.net.x: batch_x, self.net.y: batch_y, self.net.mask: batch_mask, self.net.keep_prob: 1.})
+                                                    feed_dict={self.net.x: batch_x,
+                                                               self.net.y: batch_y,
+                                                               self.net.mask: batch_mask,
+                                                               self.net.keep_prob: 1.,
+                                                               self.net.is_train: False})
         
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
@@ -450,10 +519,18 @@ class Trainer(object):
                 print(epoch)
                 for step, (batch_x, batch_y, batch_mask) in enumerate(data_provider_train(self.batch_size)):
                     _, loss_gen, lr, gradients_gen = sess.run((self.optimizer_generator, self.net.cost_generator, self.learning_rate_node, self.net.gradients_node_generator),
-                                                      feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: batch_mask, self.net.keep_prob: keep_prob})
+                                                              feed_dict= {self.net.x: batch_x,
+                                                                          self.net.y: batch_y,
+                                                                          self.net.mask: batch_mask,
+                                                                          self.net.keep_prob: keep_prob,
+                                                                          self.net.is_train: True})
                     
                     _, loss_disc, lr, gradients_disc = sess.run((self.optimizer_discriminator, self.net.cost_discriminator, self.learning_rate_node, self.net.gradients_node_discriminator),
-                                                      feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.mask: batch_mask, self.net.keep_prob: keep_prob})
+                                                                feed_dict= {self.net.x: batch_x,
+                                                                            self.net.y: batch_y,
+                                                                            self.net.mask: batch_mask,
+                                                                            self.net.keep_prob: keep_prob,
+                                                                            self.net.is_train: True})
                     
                     if self.net.create_summary and self.create_train_summary:
                         gradients_norm_ = [np.linalg.norm(gradient) for gradient in gradients_gen]

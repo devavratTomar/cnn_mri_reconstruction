@@ -4,9 +4,26 @@ import os
 import shutil
 import numpy as np
 
+import matplotlib.pyplot as plt
+
 MAX_VALUE = 255.
 TRAIN_SPLIT = 0.8
 
+def subsample_images(images):
+    image_sub = images[:, ::2, ::2]
+    return image_sub
+
+def get_uniform_mask(N):
+    index = [0, 1, 2, 3]
+    index = np.array(index + list(range(7, 56, 4)))
+    
+    print("Compression ratio: {}".format((2.*len(index))/N))
+    mask = np.zeros((N,N), dtype=float)
+    mask[index,  :] = 1.
+    mask[-index, :] = 1.
+    
+    return mask
+    
 def get_mask(N, strip_width=8):
     n_strips = (N//2)//strip_width
     common_diff = np.arange(n_strips, 0, -1)
@@ -54,13 +71,14 @@ def augment_data(image):
     images.append(np.flip(image, axis=1))    
     return images
 
-def process_save_mat_data(images, output_folder, strip_width=8):
-    n_images, N, M = images.shape
+def process_save_mat_data(images, output_folder, strip_width=4):
+    images = subsample_images(images)
     
+    n_images, N, M = images.shape 
     if os.path.exists(output_folder):
         shutil.rmtree(output_folder, ignore_errors=True)    
     os.mkdir(output_folder)
-    mask = get_mask(N, strip_width)
+    mask = get_uniform_mask(N)
     
     for it in range(n_images):
         print("Generating data for image: {nbr}, at path: {output_folder}".format(nbr=it,output_folder=output_folder))        
