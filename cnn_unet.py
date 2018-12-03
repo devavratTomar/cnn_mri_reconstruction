@@ -311,8 +311,8 @@ class CnnUnet_GAN(object):
         init = tf.global_variables_initializer()
         
         with tf.Session() as sess:
-            # Initialize variables
-            sess.run(init)
+            # Initialize variables # initialize is_train to True due to bug in tensorflow
+            sess.run(init, {self.is_train: False})
             # Restore model weights from previously saved model
             self.restore(sess, model_path)
             
@@ -498,7 +498,8 @@ class Trainer(object):
             if write_graph:
                 tf.train.write_graph(sess.graph_def, output_path, "graph.pb")
             
-            sess.run(init)
+            ## Initialize is train to true due to a bug in tensorflow. Tf does not initialise bool variables and placeholders.
+            sess.run(init, {self.net.is_train: True})
             
             if restore:
                 ckpt = tf.train.get_checkpoint_state(output_path)
