@@ -433,7 +433,7 @@ class Trainer(object):
                                           self.net.y: batch_y,
                                           self.net.mask: masks,
                                           self.net.keep_prob: 1.,
-                                          self.net.is_true: False})
+                                          self.net.is_train: False})
         
         loss_gen, loss_disc = sess.run((self.net.cost_generator, self.net.cost_discriminator),
                                        feed_dict= {self.net.x: batch_x,
