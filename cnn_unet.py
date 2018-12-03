@@ -366,30 +366,20 @@ class Trainer(object):
         learning_rate = 0.0001
         self.learning_rate_node = tf.Variable(learning_rate, name="learning_rate")
     
-    def __get_optimizer_generator(self, global_step):
+    def __get_optimizers(self, global_step):
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
-            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node)\
-                                .minimize(self.net.cost_generator, var_list= self.net.generator_vars, global_step=global_step)
-
-        return optimizer
-    
-    def __get_optimizer_discriminator(self, global_step):
-        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-        with tf.control_dependencies(update_ops):
-            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node)\
-                                .minimize(self.net.cost_discriminator, var_list= self.net.discriminator_vars, global_step=global_step)
-        return optimizer
+            optimizer_gen = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node).minimize(self.net.cost_generator, var_list= self.net.generator_vars, global_step=global_step)
+            optimizer_dis = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node).minimize(self.net.cost_discriminator, var_list= self.net.discriminator_vars, global_step=global_step)
+        return optimizer_gen, optimizer_dis
     
     def __initialize(self, output_path, restore, prediction_path):
-        global_step_gen = tf.Variable(0, name="global_step_generator")
-        global_step_disc= tf.Variable(0, name="globa_step_discriminator")
+        global_step = tf.Variable(0, name="global_step_generator")
         
         tf.summary.scalar("loss_generator", self.net.cost_generator)
         tf.summary.scalar("loss_discriminator", self.net.cost_discriminator)
         
-        self.optimizer_generator = self.__get_optimizer_generator(global_step_gen)
-        self.optimizer_discriminator = self.__get_optimizer_discriminator(global_step_disc)
+        self.optimizer_generator, self.optimizer_discriminator = self.__get_optimizers(global_step)
         
         tf.summary.scalar("learning_rate", self.learning_rate_node)
         
