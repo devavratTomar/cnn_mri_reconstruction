@@ -516,7 +516,6 @@ class Trainer(object):
                 for step, (batch_x, batch_y, batch_mask) in enumerate(data_provider_train(self.batch_size)):
                     
                     if loss_gen > 1.5*loss_disc:
-                        print("Generator trained")
                         _, loss_gen, lr = sess.run((self.optimizer_generator, self.net.cost_generator, self.learning_rate_node),
                                                    feed_dict= {self.net.x: batch_x,
                                                                self.net.y: batch_y,
@@ -525,7 +524,7 @@ class Trainer(object):
                                                                self.net.is_train: True})
 
                     else:
-                        print("Discriminator trained")
+                        logging.info("Discriminator trained")
                         _, loss_disc, lr, dic_fake_acc, dic_real_acc = sess.run((self.optimizer_discriminator, self.net.cost_generator, self.learning_rate_node, self.net.discriminator_acc_fake, self.net.discriminator_acc_real),
                                                                                 feed_dict= {self.net.x: batch_x,
                                                                                         self.net.y: batch_y,
