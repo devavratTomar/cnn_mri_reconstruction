@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 
 MAX_VALUE = 255.
 TRAIN_SPLIT = 0.8
+OPT_MASK_PATH = './masks/mask_ULTIMATE_NN.mat'
 
 def subsample_images(images):
     image_sub = images[:, ::2, ::2]
@@ -23,6 +24,11 @@ def get_uniform_mask(N):
     mask[-index, :] = 1.
     
     return mask
+
+def get_opt_mask(subsample=2):
+    mask = loadmat(OPT_MASK_PATH)['mask']
+    mask = mask[::subsample, ::subsample]
+    return np.fft.fftshift(mask)
     
 def get_mask(N, strip_width=8):
     n_strips = (N//2)//strip_width
@@ -78,7 +84,7 @@ def process_save_mat_data(images, output_folder, strip_width=4):
     if os.path.exists(output_folder):
         shutil.rmtree(output_folder, ignore_errors=True)    
     os.mkdir(output_folder)
-    mask = get_uniform_mask(N)
+    mask = get_opt_mask()
     
     for it in range(n_images):
         print("Generating data for image: {nbr}, at path: {output_folder}".format(nbr=it,output_folder=output_folder))        

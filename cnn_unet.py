@@ -376,7 +376,7 @@ class Trainer(object):
         self.create_train_summary = create_train_summary
         
         # we choose adam optimezer for this problem.
-        learning_rate = 0.0001
+        learning_rate = 0.001
         self.learning_rate_node = tf.Variable(learning_rate, name="learning_rate")
     
     def __get_optimizers(self, global_step):
@@ -524,7 +524,7 @@ class Trainer(object):
                                                                self.net.keep_prob: keep_prob,
                                                                self.net.is_train: True})
 
-                    if loss_disc > 1.5*loss_gen:
+                    else:
                         print("Discriminator trained")
                         _, loss_disc, lr, dic_fake_acc, dic_real_acc = sess.run((self.optimizer_discriminator, self.net.cost_generator, self.learning_rate_node, self.net.discriminator_acc_fake, self.net.discriminator_acc_real),
                                                                                 feed_dict= {self.net.x: batch_x,
