@@ -28,7 +28,7 @@ def create_generator_network(x, channels_x, channels_y, layers, feature_base, ke
     :create_summary: Creates Tensorboard summary if True
     """
     MINI_FILTER_SIZE = 3
-    WIDE_FILTER_SIZE = 7
+    WIDE_FILTER_SIZE = 3
     
     with tf.variable_scope("GAN/Generator",reuse=reuse):
         logging.info("Layers: {layers}, features: {features} input channels {in_channels}, output channels {out_channels}".format(
@@ -94,14 +94,14 @@ def create_generator_network(x, channels_x, channels_y, layers, feature_base, ke
                 h_deconv = utils.deconv2d(input_node, w1, 2) + b1
                 h_deconv = tf.nn.leaky_relu(tf.layers.batch_normalization(h_deconv, training=is_train))
                 
-                h_deconv_sum = 0.5*tf.add(dw_h_convs[layer], h_deconv)
-                
-                w2 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, features//2, features//2], std_dev, "w2")
+               # h_deconv_sum = 0.5*tf.add(dw_h_convs[layer], h_deconv)
+                h_deconv_concat = tf.concat([dw_h_convs[layer], h_deconv], axis=3)
+                w2 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, features, features//2], std_dev, "w2")
                 w3 = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, features//2, features//2], std_dev, "w3")
                 b2 = utils.bias_variable([features//2], "b2")
                 b3 = utils.bias_variable([features//2], "b3")
                 
-                conv_2 = utils.conv2d(h_deconv_sum, w2, b2, keep_prob, stride=1)
+                conv_2 = utils.conv2d(h_deconv_concat, w2, b2, keep_prob, stride=1)
                 conv_2 = tf.nn.leaky_relu(tf.layers.batch_normalization(conv_2, training=is_train))
                 
                 conv_3 = utils.conv2d(conv_2, w3, b3, keep_prob, stride=1)
