@@ -279,8 +279,21 @@ class CnnUnet_GAN(object):
         self.generator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope="GAN/Generator")
         self.discriminator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope="GAN/Discriminator")
         
+        self.discriminator_acc_fake, self.discriminator_acc_real = self.__get_discriminator_accuracy(fake_logit, real_logit)
+        
         with tf.name_scope("resuts"):
             self.predictor = fake_output
+    
+    def __get_discriminator_accuracy(self, fake_logit, real_logit):
+        prob_fake = tf.sigmoid(fake_logit)
+        prob_real = tf.sigmoid(real_logit)
+        
+#        acc_fake = tf.reduce_mean(tf.cast(tf.greater(0.5, prob_fake), float))
+#        acc_real = tf.reduce_mean(tf.cast(tf.greater(prob_real, 0.5), float))
+        
+        acc_fake = 1.0 - tf.reduce_mean(prob_fake)
+        acc_real = tf.reduce_mean(prob_real)
+        return acc_fake, acc_real
     
     def __get_cost_discriminator(self, real_logit, fake_logit):
         with tf.name_scope("cost_discriminator"):
@@ -378,6 +391,8 @@ class Trainer(object):
         
         tf.summary.scalar("loss_generator", self.net.cost_generator)
         tf.summary.scalar("loss_discriminator", self.net.cost_discriminator)
+        tf.summary.scalar("discriminator_accuracy_fake", self.net.discriminator_acc_fake)
+        tf.summary.scalar("discriminator_accuracy_real", self.net.discriminator_acc_real)
         
         self.optimizer_generator, self.optimizer_discriminator = self.__get_optimizers(global_step)
         
@@ -433,16 +448,18 @@ class Trainer(object):
     
     def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y, batch_mask):
         # Calculate batch loss and accuracy
-        summary_str, loss_gen, loss_disc = sess.run((self.summary_all, self.net.cost_generator, self.net.cost_discriminator),
-                                                    feed_dict={self.net.x: batch_x,
-                                                               self.net.y: batch_y,
-                                                               self.net.mask: batch_mask,
-                                                               self.net.keep_prob: 1.,
-                                                               self.net.is_train: False})
+        summary_str, loss_gen, loss_disc, disc_acc_fake, disc_acc_real = \
+        sess.run((self.summary_all, self.net.cost_generator, self.net.cost_discriminator, self.net.discriminator_acc_fake, self.net.discriminator_acc_real),
+                 feed_dict={self.net.x: batch_x,
+                            self.net.y: batch_y,
+                            self.net.mask: batch_mask,
+                            self.net.keep_prob: 1.,
+                            self.net.is_train: False})
         
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
-        logging.info("Iter {:}, Minibatch Loss: Generator = {:.16f}, Discriminator = {:.16f}".format(step, loss_gen, loss_disc))
+        logging.info("Iter {:}, Minibatch Loss: Generator = {:.16f}, Discriminator = {:.16f}, Accuracy fake = {}, Accuracy real = {}"\
+                     .format(step, loss_gen, loss_disc, disc_acc_fake, disc_acc_real))
         
     def output_epoch_stats(self, epoch, loss_gen, loss_disc, lr):
         logging.info(
@@ -491,23 +508,28 @@ class Trainer(object):
             summary_writer = tf.summary.FileWriter(output_path, graph=sess.graph)
             logging.info("Training Started")
             
+            loss_disc = 999999.
+            
             step_counter = 0
             for epoch in range(epochs):
                 print(epoch)
                 for step, (batch_x, batch_y, batch_mask) in enumerate(data_provider_train(self.batch_size)):
-                    _, loss_gen, lr = sess.run((self.optimizer_generator, self.net.cost_generator, self.learning_rate_node), feed_dict= {self.net.x: batch_x,
-                                                                          self.net.y: batch_y,
-                                                                          self.net.mask: batch_mask,
-                                                                          self.net.keep_prob: keep_prob,
-                                                                          self.net.is_train: True})
-                    
-                    _, loss_disc, lr = sess.run((self.optimizer_discriminator, self.net.cost_generator, self.learning_rate_node),feed_dict= {self.net.x: batch_x,
-                                                                            self.net.y: batch_y,
-                                                                            self.net.mask: batch_mask,
-                                                                            self.net.keep_prob: keep_prob,
-                                                                            self.net.is_train: True})
-                    
-
+                    _, loss_gen, lr = sess.run((self.optimizer_generator, self.net.cost_generator, self.learning_rate_node),
+                                               feed_dict= {self.net.x: batch_x,
+                                                           self.net.y: batch_y,
+                                                           self.net.mask: batch_mask,
+                                                           self.net.keep_prob: keep_prob,
+                                                           self.net.is_train: True})
+    
+                    if loss_disc > 0.5*loss_gen:
+                        print("Generator trained")
+                        _, loss_disc, lr, dic_fake_acc, dic_real_acc = sess.run((self.optimizer_discriminator, self.net.cost_generator, self.learning_rate_node, self.net.discriminator_acc_fake, self.net.discriminator_acc_real),
+                                                                                feed_dict= {self.net.x: batch_x,
+                                                                                        self.net.y: batch_y,
+                                                                                        self.net.mask: batch_mask,
+                                                                                        self.net.keep_prob: keep_prob,
+                                                                                        self.net.is_train: True})
+    
                     if step % display_step == 0:
                         self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y, batch_mask)
                     step_counter +=1

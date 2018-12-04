@@ -1,11 +1,11 @@
 from data_processor import DataProvider
 from cnn_unet import CnnUnet_GAN, Trainer
 
-N_EPOCHS = 50
+N_EPOCHS = 2
 data_provider_train = DataProvider(directory_name='./data/train', epochs=1, file_extension='.npy')
 data_provider_test = DataProvider(directory_name='./data/test', epochs=0, file_extension='.npy')
 
-u_net = CnnUnet_GAN(x_channels=2, y_channels=2, layers_gen=3, feature_base_gen=64, feature_base_disc=64)
+u_net = CnnUnet_GAN(x_channels=2, y_channels=2, layers_gen=3, feature_base_gen=16, feature_base_disc=32)
 
 trainer = Trainer(u_net, batch_size=15, validation_batch_size=50)
 trainer.train(data_provider_train.get_images_iter,
@@ -13,5 +13,5 @@ trainer.train(data_provider_train.get_images_iter,
               'output_gan_batch_norm',
               0.8,
               N_EPOCHS,
-              10,
+              1,
               lr_update=30)
