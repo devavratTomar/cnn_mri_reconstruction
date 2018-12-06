@@ -401,7 +401,8 @@ class Trainer(object):
         
         self.optimizer_generator, self.optimizer_discriminator = self.__get_optimizers(global_step)
         
-        tf.summary.scalar("learning_rate", self.learning_rate_node)
+        tf.summary.scalar("learning_rate_generator", self.learning_rate_node_gen)
+        tf.summary.scalar("learning_rate_discriminator", self.learning_rate_node_dis)
         
         
         self.summary_all = tf.summary.merge_all()
