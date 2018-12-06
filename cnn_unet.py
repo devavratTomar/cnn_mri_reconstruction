@@ -10,6 +10,8 @@ import logging
 import os
 import shutil
 
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+
 #TODO: Pass image size as parameter
 IMAGE_SIZE = 128
 
@@ -298,8 +300,8 @@ class CnnUnet_GAN(object):
     def __get_cost_discriminator(self, real_logit, fake_logit):
         with tf.name_scope("cost_discriminator"):
             loss = tf.reduce_mean(\
-                    tf.nn.sigmoid_cross_entropy_with_logits(logits=real_logit,labels=tf.ones_like(real_logit)) +\
-                    tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit,labels=tf.zeros_like(fake_logit)))
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=real_logit,labels=tf.random.uniform(tf.shape(real_logit), minval=0.7, maxval=1.2)) +\
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit,labels=tf.random.uniform(tf.shape(fake_logit), minval=0.0, maxval=0.3)))
             
             return loss
         
@@ -312,7 +314,7 @@ class CnnUnet_GAN(object):
             
             loss_mse_fft = tf.losses.mean_squared_error(tf.concat([tf.real(input_image_fft), tf.imag(input_image_fft)], axis=3),\
                                                         fake_output_fft*self.mask)
-            loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit, labels=tf.ones_like(fake_logit)))
+            loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit, labels=tf.random.uniform(tf.shape(fake_logit), minval=0.7, maxval=1.2)))
         
         return loss_gen + 10*loss_mse_image + loss_mse_fft
     
@@ -376,14 +378,17 @@ class Trainer(object):
         self.create_train_summary = create_train_summary
         
         # we choose adam optimezer for this problem.
-        learning_rate = 0.001
-        self.learning_rate_node = tf.Variable(learning_rate, name="learning_rate")
+        learning_rate_dis = 0.001
+        learning_rate_gen = 0.0001
+        
+        self.learning_rate_node_gen = tf.Variable(learning_rate_gen, name="learning_rate_generator")
+        self.learning_rate_node_dis = tf.Variable(learning_rate_dis, name="learning_rate_discriminator")
     
     def __get_optimizers(self, global_step):
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
-            optimizer_gen = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node).minimize(self.net.cost_generator, var_list= self.net.generator_vars, global_step=global_step)
-            optimizer_dis = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node).minimize(self.net.cost_discriminator, var_list= self.net.discriminator_vars, global_step=global_step)
+            optimizer_gen = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node_gen).minimize(self.net.cost_generator, var_list= self.net.generator_vars, global_step=global_step)
+            optimizer_dis = tf.train.AdamOptimizer(learning_rate=self.learning_rate_node_dis).minimize(self.net.cost_discriminator, var_list= self.net.discriminator_vars, global_step=global_step)
         return optimizer_gen, optimizer_dis
     
     def __initialize(self, output_path, restore, prediction_path):
