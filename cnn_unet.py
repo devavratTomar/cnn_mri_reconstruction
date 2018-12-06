@@ -300,8 +300,8 @@ class CnnUnet_GAN(object):
     def __get_cost_discriminator(self, real_logit, fake_logit):
         with tf.name_scope("cost_discriminator"):
             loss = tf.reduce_mean(\
-                    tf.nn.sigmoid_cross_entropy_with_logits(logits=real_logit,labels=tf.random.uniform(tf.shape(real_logit), minval=0.7, maxval=1.2)) +\
-                    tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit,labels=tf.random.uniform(tf.shape(fake_logit), minval=0.0, maxval=0.3)))
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=real_logit,labels=tf.random_uniform(tf.shape(real_logit), minval=0.7, maxval=1.2)) +\
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit,labels=tf.random_uniform(tf.shape(fake_logit), minval=0.0, maxval=0.3)))
             
             return loss
         
@@ -314,7 +314,7 @@ class CnnUnet_GAN(object):
             
             loss_mse_fft = tf.losses.mean_squared_error(tf.concat([tf.real(input_image_fft), tf.imag(input_image_fft)], axis=3),\
                                                         fake_output_fft*self.mask)
-            loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit, labels=tf.random.uniform(tf.shape(fake_logit), minval=0.7, maxval=1.2)))
+            loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit, labels=tf.random_uniform(tf.shape(fake_logit), minval=0.7, maxval=1.2)))
         
         return loss_gen + 10*loss_mse_image + loss_mse_fft
     
