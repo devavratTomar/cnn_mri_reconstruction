@@ -467,9 +467,10 @@ class Trainer(object):
         logging.info("Iter {:}, Minibatch Loss: Generator = {:.16f}, Discriminator = {:.16f}, Accuracy fake = {}, Accuracy real = {}"\
                      .format(step, loss_gen, loss_disc, disc_acc_fake, disc_acc_real))
         
-    def output_epoch_stats(self, epoch, loss_gen, loss_disc, lr):
+    def output_epoch_stats(self, epoch, loss_gen, loss_disc, lr_gen, lr_disc):
         logging.info(
-            "Epoch {:}, Loss Generator = {:.16f}, Loss Discriminator = {:.16f}, learning rate: {:.8f}".format(epoch, loss_gen, loss_disc, lr))
+            "Epoch {:}, Loss Generator = {:.16f}, Loss Discriminator = {:.16f}, learning rate generator: {:.8f}"
+            ", learning rate discriminator: {:.8f}".format(epoch, loss_gen, loss_disc, lr_gen, lr_disc))
     
     def train(self, data_provider_train, data_provider_validation,
               output_path,
@@ -520,14 +521,14 @@ class Trainer(object):
             for epoch in range(epochs):
                 print(epoch)
                 for step, (batch_x, batch_y, batch_mask) in enumerate(data_provider_train(self.batch_size)):
-                    _, loss_gen, lr = sess.run((self.optimizer_generator, self.net.cost_generator, self.learning_rate_node),
+                    _, loss_gen, lr_gen = sess.run((self.optimizer_generator, self.net.cost_generator, self.learning_rate_node_gen),
                                                    feed_dict= {self.net.x: batch_x,
                                                                self.net.y: batch_y,
                                                                self.net.mask: batch_mask,
                                                                self.net.keep_prob: keep_prob,
                                                                self.net.is_train: True})
                     
-                    _, loss_disc, lr, dic_fake_acc, dic_real_acc = sess.run((self.optimizer_discriminator, self.net.cost_generator, self.learning_rate_node, self.net.discriminator_acc_fake, self.net.discriminator_acc_real),
+                    _, loss_disc, lr_disc, dic_fake_acc, dic_real_acc = sess.run((self.optimizer_discriminator, self.net.cost_generator, self.learning_rate_node_dis, self.net.discriminator_acc_fake, self.net.discriminator_acc_real),
                                                                                 feed_dict= {self.net.x: batch_x,
                                                                                         self.net.y: batch_y,
                                                                                         self.net.mask: batch_mask,
@@ -538,7 +539,7 @@ class Trainer(object):
                         self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y, batch_mask)
                     step_counter +=1
                         
-                self.output_epoch_stats(epoch, loss_gen, loss_disc, lr)
+                self.output_epoch_stats(epoch, loss_gen, loss_disc, lr_gen, lr_disc)
                 self.store_prediction(sess, test_x, test_y, masks, "epoch_{}".format(epoch))
                 save_path = self.net.save(sess, save_path)
                 
