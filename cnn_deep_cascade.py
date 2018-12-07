@@ -40,15 +40,13 @@ def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=5, 
         
         x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
         input_node = x_image
-        
+
+
+    weights = []
+    biases = []
 
     # create cascade layers
     for cascade in range(cascade_n):
-
-        convs = []
-        weights = []
-        biases = []
-        deconv = OrderedDict()
 
         # hidden layers
         for layer in range(layers):
@@ -66,13 +64,13 @@ def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=5, 
                 b1 = utils.bias_variable([features], "b1")
 
                 conv_1 = utils.conv2d(input_node, w1, b1, 1)
+                conv_1 = tf.nn.leaky_relu(conv_1)
 
                 weights.append(w1)
                 biases.append(b1)
-                convs.append(conv_1)
 
 
-            input_node = convs[layer]
+            input_node = conv_1
 
         # aggregation layer
         features = (2 ** layers) * channels_x
@@ -86,16 +84,15 @@ def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=5, 
         b1 = utils.bias_variable([features], "b1")
 
         conv_1 = utils.conv2d(input_node, w1, b1, 1)
+        conv_1 = tf.nn.leaky_relu(conv_1)
 
         weights.append(w1)
         biases.append(b1)
-        convs.append(conv_1)
-        input_node = convs[layers]
+        input_node = conv_1
 
 
         #residual layer
-        convs.append(tf.math.add(x, input_node))
-        output_image = convs[-1]
+        output_image = tf.math.add(x, input_node)
 
         #output image complex
         output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
@@ -115,8 +112,14 @@ def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=5, 
 
         input_node  = output_image_corrected
 
-        
-    return input_node
+    variables = []
+    for w in weights:
+        variables.append(w)
+
+    for b in biases:
+        variables.append(b)
+
+    return input_node, variables
 
 
 class DeepCascade(object):
