@@ -7,25 +7,23 @@ import numpy as np
 from skimage import io
 import tensorflow as tf
 import matplotlib.pyplot as plt
-import logging
 from skimage.measure import compare_ssim as ssim
 
 LAMBDA = 2
 
 def get_variable(shape, name):
-    return tf.get_variable(name, shape)
+    return tf.get_variable(name, shape, initializer=tf.contrib.layers.xavier_initializer())
 
 def padding_circular(x, padding):
     out = tf.concat([x[:, -padding:, :, :], x, x[:, 0:padding, :, :]], axis=1)
     out = tf.concat([out[:, :, -padding:, :], out, out[:, :, 0:padding, :]], axis=2)  
     return out
 
-## TODO: Check if the default initialization is better
 def weight_variable(shape, name):
-    return tf.get_variable(name, shape)
+    return tf.get_variable(name, shape, initializer=tf.contrib.layers.xavier_initializer())
 
 def weight_variable_devonc(shape, name):
-    return tf.get_variable(name, shape)
+    return tf.get_variable(name, shape, initializer=tf.contrib.layers.xavier_initializer())
 
 def bias_variable(shape, name):
     initial = tf.constant(0.1, shape=shape)
