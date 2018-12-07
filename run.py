@@ -14,4 +14,4 @@ trainer.train(data_provider_train.get_images_iter,
               0.8,
               N_EPOCHS,
               10,
-              lr_update=30)
+              lr_update=30, restore=True)

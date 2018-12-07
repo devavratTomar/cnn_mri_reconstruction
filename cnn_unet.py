@@ -117,7 +117,7 @@ def create_generator_network(x, channels_x, channels_y, layers, feature_base, ke
         output_image = utils.conv2d(input_node, weight, bias, tf.constant(1.0), stride=1, add_custom_pad=False)
         
         #TODO: Should we add input to the final reconstruction?
-        output_image = tf.nn.tanh(output_image)
+        output_image = tf.add(output_image, x_image)
         
         output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
         output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
@@ -300,8 +300,8 @@ class CnnUnet_GAN(object):
     def __get_cost_discriminator(self, real_logit, fake_logit):
         with tf.name_scope("cost_discriminator"):
             loss = tf.reduce_mean(\
-                    tf.nn.sigmoid_cross_entropy_with_logits(logits=real_logit,labels=tf.random_uniform(tf.shape(real_logit), minval=0.7, maxval=1.2)) +\
-                    tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit,labels=tf.random_uniform(tf.shape(fake_logit), minval=0.0, maxval=0.3)))
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=real_logit,labels=tf.random_uniform(tf.shape(real_logit), minval=0.8, maxval=1.2)) +\
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit,labels=tf.random_uniform(tf.shape(fake_logit), minval=0.0, maxval=0.2)))
             
             return loss
         
@@ -314,7 +314,7 @@ class CnnUnet_GAN(object):
             
             loss_mse_fft = tf.losses.mean_squared_error(tf.concat([tf.real(input_image_fft), tf.imag(input_image_fft)], axis=3),\
                                                         fake_output_fft*self.mask)
-            loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit, labels=tf.random_uniform(tf.shape(fake_logit), minval=0.7, maxval=1.2)))
+            loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit, labels=tf.random_uniform(tf.shape(fake_logit), minval=0.8, maxval=1.2)))
         
         return loss_gen + 10*loss_mse_image + loss_mse_fft
     
@@ -378,8 +378,8 @@ class Trainer(object):
         self.create_train_summary = create_train_summary
         
         # we choose adam optimezer for this problem.
-        learning_rate_dis = 0.001
-        learning_rate_gen = 0.0001
+        learning_rate_dis = 0.0005
+        learning_rate_gen = 0.0005
         
         self.learning_rate_node_gen = tf.Variable(learning_rate_gen, name="learning_rate_generator")
         self.learning_rate_node_dis = tf.Variable(learning_rate_dis, name="learning_rate_discriminator")
@@ -544,7 +544,8 @@ class Trainer(object):
                 save_path = self.net.save(sess, save_path)
                 
                 if epoch % lr_update == 0 and epoch != 0:
-                    sess.run(self.learning_rate_node.assign(self.learning_rate_node.eval()/2))
+                    sess.run(self.learning_rate_node_gen.assign(self.learning_rate_node_gen.eval()/2))
+                    sess.run(self.learning_rate_node_dis.assign(self.learning_rate_node_dis.eval()/2))
             
             summary_writer.close()
         logging.info("Training Finished")
