@@ -101,11 +101,11 @@ def process_save_mat_data(images, output_folder, strip_width=4):
             np.save(output_folder + '/' + 'Mri_' + str(it) + '_aug_'+ str(aug_type), save_data_image)
                 
                 
-data_1 = load_mat_data('./data_original/train.mat')
-data_2 = load_mat_data('./data_original/test.mat')
-data_net = np.concatenate((data_1, data_2), axis=0)
-
-n_train = int(TRAIN_SPLIT*data_net.shape[0])
-
-process_save_mat_data(data_net[:n_train], './data/train')
-process_save_mat_data(data_net[n_train:], './data/test')
+#data_1 = load_mat_data('./data_original/train.mat')
+#data_2 = load_mat_data('./data_original/test.mat')
+#data_net = np.concatenate((data_1, data_2), axis=0)
+#
+#n_train = int(TRAIN_SPLIT*data_net.shape[0])
+#
+#process_save_mat_data(data_net[:n_train], './data/train')
+#process_save_mat_data(data_net[n_train:], './data/test')
