@@ -16,7 +16,7 @@ IMAGE_SIZE = 128
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_resnet(x, channels_x, channels_y, layers, keep_prob, is_train, reuse=False):
+def create_resnet(x, channels_x, channels_y, layers, is_train, reuse=False):
     """
     Resnetwork as mention at https://arxiv.org/pdf/1609.04802.pdf
     """
@@ -40,7 +40,7 @@ def create_resnet(x, channels_x, channels_y, layers, keep_prob, is_train, reuse=
             w = utils.weight_variable([WIDE_FILTER_SIZE, WIDE_FILTER_SIZE, channels_x, 64], name="weight_init")
             b = utils.bias_variable([64], name="bias_init")
             
-            conv_init = utils.conv2d(input_node, w, b, keep_prob, stride=1)
+            conv_init = utils.conv2d(input_node, w, b, stride=1)
             conv_init = tf.nn.leaky_relu(conv_init)
             
             input_node = conv_init
@@ -51,14 +51,14 @@ def create_resnet(x, channels_x, channels_y, layers, keep_prob, is_train, reuse=
                 w = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, 64, 64], name="weight_{}_1".format(layer))
                 b = utils.bias_variable([64], "bias_{}_1".format(layer))
                 
-                conv = utils.conv2d(input_node, w, b, keep_prob, stride=1)
+                conv = utils.conv2d(input_node, w, b, stride=1)
                 bn = tf.layers.batch_normalization(conv, training=is_train)
                 conv_activation = tf.nn.leaky_relu(bn)
                 
                 w = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, 64, 64], name="weight_{}_2".format(layer))
                 b = utils.bias_variable([64], "bias_{}_2".format(layer))
                 
-                conv = utils.conv2d(conv_activation, w, b, keep_prob, stride=1)
+                conv = utils.conv2d(conv_activation, w, b, stride=1)
                 bn = tf.layers.batch_normalization(conv, training=is_train)
                 input_node = tf.add(bn, input_node)
                 
@@ -67,7 +67,7 @@ def create_resnet(x, channels_x, channels_y, layers, keep_prob, is_train, reuse=
             w = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, 64, 64], name="weight_final_1")
             b = utils.bias_variable([64], name="bias_final_1")
             
-            conv = utils.conv2d(input_node, w, b, keep_prob, stride=1)
+            conv = utils.conv2d(input_node, w, b, stride=1)
             bn = tf.layers.batch_normalization(conv, training=is_train)
             
             input_node = tf.add(bn, conv_init)
@@ -76,7 +76,7 @@ def create_resnet(x, channels_x, channels_y, layers, keep_prob, is_train, reuse=
             w = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, 64, 256], name="weight_final_2")
             b = utils.bias_variable([256], name="bias_final_2")
             
-            conv = utils.conv2d(input_node, w, b, keep_prob, stride=1)
+            conv = utils.conv2d(input_node, w, b, stride=1)
             conv = tf.nn.leaky_relu(conv)
             input_node = conv
             
@@ -84,14 +84,14 @@ def create_resnet(x, channels_x, channels_y, layers, keep_prob, is_train, reuse=
             w = utils.weight_variable([MINI_FILTER_SIZE, MINI_FILTER_SIZE, 256, 256], name="weight_final_3")
             b = utils.bias_variable([256], name="bias_final_3")
             
-            conv = utils.conv2d(input_node, w, b, keep_prob, stride=1)
+            conv = utils.conv2d(input_node, w, b, stride=1)
             conv = tf.nn.leaky_relu(conv)
             input_node = conv
             
         with tf.name_scope("Output_layer"):
             w = utils.weight_variable([WIDE_FILTER_SIZE, WIDE_FILTER_SIZE, 256, 2], name="weight_output")
             b = utils.bias_variable([2], name="bias_output")
-            output_image = utils.conv2d(input_node, w, b, keep_prob, stride=1)
+            output_image = utils.conv2d(input_node, w, b, stride=1)
             
         output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
         output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
@@ -114,8 +114,7 @@ class CnnResnet(object):
         self.x =    tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
         self.y =    tf.placeholder("float", shape=[None, None, None, y_channels], name="y")
         self.mask = tf.placeholder("float", shape=[None, None, None, 1], name="mask")
-        
-        self.keep_prob = tf.placeholder("float", name="dropout_probability")
+
         self.is_train = tf.placeholder("bool", name="batch_norm_is_train")
         
         self.x_channels = x_channels
@@ -126,7 +125,6 @@ class CnnResnet(object):
                                                        channels_x= x_channels,
                                                        channels_y= y_channels,
                                                        layers= layers,
-                                                       keep_prob=self.keep_prob,
                                                        is_train=self.is_train)
         
         self.cost = self.__get_cost(output_image, output_image_fft)
@@ -160,7 +158,6 @@ class CnnResnet(object):
                                   feed_dict={self.x: test_image,
                                              self.y: y_dummy,
                                              self.mask: test_mask,
-                                             self.keep_prob: 1.0,
                                              self.is_train: False})
             
         return prediction
@@ -205,7 +202,7 @@ class Trainer(object):
         self.create_train_summary = create_train_summary
         
         # we choose adam optimezer for this problem.
-        learning_rate = 0.001
+        learning_rate = 0.0001
         self.learning_rate = tf.Variable(learning_rate, name="learning_rate")
     
     def __get_optimizer(self, global_step):
@@ -250,17 +247,15 @@ class Trainer(object):
                               feed_dict= {self.net.x: batch_x,
                                           self.net.y: batch_y,
                                           self.net.mask: masks,
-                                          self.net.keep_prob: 1.,
                                           self.net.is_train: False})
         
         loss = sess.run(self.net.cost,
                         feed_dict= {self.net.x: batch_x,
                                     self.net.y: batch_y,
                                     self.net.mask: masks,
-                                    self.net.keep_prob: 1.,
                                     self.net.is_train: False})
         
-        logging.info("Loss = {}".format(loss))
+        logging.info("Validation Loss = {}".format(loss))
         prediction_folder = os.path.join(self.prediction_path, name)
         
         if os.path.exists(prediction_folder):
@@ -276,7 +271,6 @@ class Trainer(object):
                  feed_dict={self.net.x: batch_x,
                             self.net.y: batch_y,
                             self.net.mask: batch_mask,
-                            self.net.keep_prob: 1.,
                             self.net.is_train: False})
         
         summary_writer.add_summary(summary_str, step)
@@ -290,7 +284,6 @@ class Trainer(object):
     
     def train(self, data_provider_train, data_provider_validation,
               output_path,
-              keep_prob,
               epochs=10,
               display_step=1,
               lr_update=20,
@@ -339,7 +332,6 @@ class Trainer(object):
                                            feed_dict= {self.net.x: batch_x,
                                                        self.net.y: batch_y,
                                                        self.net.mask: batch_mask,
-                                                       self.net.keep_prob: keep_prob,
                                                        self.net.is_train: True})
                     if step % display_step == 0:
                         self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y, batch_mask)
