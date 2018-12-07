@@ -209,8 +209,10 @@ class Trainer(object):
         self.learning_rate = tf.Variable(learning_rate, name="learning_rate")
     
     def __get_optimizer(self, global_step):
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.net.cost, global_step=global_step)
-        return optimizer
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.net.cost, global_step=global_step)
+            return optimizer
     
     def __initialize(self, output_path, restore, prediction_path):
         global_step = tf.Variable(0, name="global_step")

@@ -20,13 +20,13 @@ def padding_circular(x, padding):
     return out
 
 def weight_variable(shape, name):
-    return tf.get_variable(name, shape, initializer=tf.contrib.layers.xavier_initializer())
+    return tf.get_variable(name, shape, initializer=tf.contrib.layers.xavier_initializer(uniform=False))
 
 def weight_variable_devonc(shape, name):
-    return tf.get_variable(name, shape, initializer=tf.contrib.layers.xavier_initializer())
+    return tf.get_variable(name, shape, initializer=tf.contrib.layers.xavier_initializer(uniform=False))
 
 def bias_variable(shape, name):
-    initial = tf.constant(0.1, shape=shape)
+    initial = tf.constant(0.0, shape=shape)
     return tf.get_variable(name, initializer=initial)
 
 def conv2d_dilated(x, W, b, keep_prob, dilation):
