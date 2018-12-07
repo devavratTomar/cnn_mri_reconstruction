@@ -12,11 +12,13 @@ import shutil
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_conv_network(x, channels_x, channels_y, layers=5, feature_base=64, filter_size=3, create_summary=True):
+def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=5, feature_base=64, filter_size=3, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 2 channels.
     :param channels_y: number of channels in the output image. For Mri, output has 2 channels.
+    :param mask: mask applied on fourier transform of input image.
+    :param cascade_n: depth of cascase.
     :param layers: number of layers in deep cascade architecture.
     :param feature_base: Neurons in first layer of cnn. Next layers have twice the number of neurons in previous layers.
     :param filter_size: size of convolution filter
@@ -39,112 +41,87 @@ def create_conv_network(x, channels_x, channels_y, layers=5, feature_base=64, fi
         x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
         input_node = x_image
         
-    weights = []
-    biases = []
-    convs = []
-    deconv = OrderedDict()
-    dw_h_convs = OrderedDict()
-    up_h_convs = OrderedDict()
-    
-    
-    # down layers
-    for layer in range(layers):
-	
-        with tf.name_scope("down_conv_layer{}".format(str(layer))):
-            features = (2**layer)*feature_base
-            std_dev = np.sqrt(2./(filter_size*filter_size*features))
-            
-            if  layer == 0:
-                w1 = utils.weight_variable([filter_size, filter_size, channels_x, features], std_dev, "w1")
-            else:
-                w1 = utils.weight_variable([filter_size, filter_size, features//2, features], std_dev, "w1")
-                
-            w2 = utils.weight_variable([filter_size, filter_size, features, features], std_dev, "w2")
-            b1 = utils.bias_variable([features], "b1")
-            b2 = utils.bias_variable([features], "b2")
-            
-            conv_1 = utils.conv2d(input_node, w1, b1, 1)
-            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2, 1)
-            dw_h_convs[layer] = tf.nn.relu(conv_2)
-            
-            weights.append((w1, w2))
-            biases.append((b1, b2))
-            convs.append((conv_1, conv_2))
-            
-    
-    input_node = dw_h_convs[layers-1]
-    
-    #up layers
-    for layer in range(layers - 2, -1, -1):
-        with tf.name_scope("up_conv_layer{}".format(str(layer))):
-            features = (2**(layer + 1))*feature_base
-            std_dev = np.sqrt(2./(filter_size*filter_size*features))
-            
-            wd = utils.weight_variable_devonc([pool_size, pool_size, features//2, features], std_dev, "wd")
-            bd = utils.bias_variable([features//2], "bd")
-            
-            h_deconv = tf.nn.relu(utils.deconv2d(input_node, wd, pool_size) + bd)
-            h_deconv_concat = tf.concat([dw_h_convs[layer], h_deconv], 3)
-            
-            deconv[layer] = h_deconv_concat
-            
-            w1 = utils.weight_variable([filter_size, filter_size, features, features//2], std_dev, "w1")
-            w2 = utils.weight_variable([filter_size, filter_size, features//2, features//2], std_dev, "w2")
-            b1 = utils.bias_variable([features//2], "b1")
-            b2 = utils.bias_variable([features//2], "b2")
-            
-            conv_1 = utils.conv2d(h_deconv_concat, w1, b1, keep_prob)
-            conv_2 = utils.conv2d(tf.nn.relu(conv_1), w2, b2, keep_prob)
-            
-            input_node = tf.nn.relu(conv_2)
-            up_h_convs[layer] = input_node
-            
-            weights.append((w1, w2))
-            biases.append((b1, b2))
-            convs.append((conv_1, conv_2))
-            
-    #Output image
-    with tf.name_scope("output_image"):
-        weight = utils.weight_variable([1, 1, feature_base, channels_y], std_dev, "out_weight")
-        bias = utils.bias_variable([channels_y], "out_bias")
-        output_image = tf.add(utils.conv2d(input_node, weight, bias, tf.constant(1.0)), x_image)
-        up_h_convs["out"] = output_image
-    
-    
-    # Create Summaries
-    if create_summary:
-        with tf.name_scope("summaries"):
-            for i, (c1, c2) in enumerate(convs):
-                tf.summary.image("summary_conv_{:02}_01".format(i), utils.get_image_summary(c1))
-                tf.summary.image("summary_conv_{:02}_02".format(i), utils.get_image_summary(c2))
-                
-            for k in pools.keys():
-                tf.summary.image("summary_pool_{:02}".format(k), utils.get_image_summary(pools[k]))
-            
-            for k in deconv.keys():
-                tf.summary.image("summary_deconv_concat_{:02}".format(k), utils.get_image_summary(deconv[k]))
-                
-            for k in dw_h_convs.keys():
-                tf.summary.histogram("dw_convolution_{:02}/activations".format(k), dw_h_convs[k])
 
-            for k in up_h_convs.keys():
-                tf.summary.histogram("up_convolution_{}/activations".format(k), up_h_convs[k])
-    
-    variables = []
-    for w1, w2 in weights:
-        variables.append(w1)
-        variables.append(w2)
-    
-    for b1, b2 in biases:
-        variables.append(b1)
-        variables.append(b2)
+    # create cascade layers
+    for cascade in range(cascade_n):
+
+        convs = []
+        weights = []
+        biases = []
+        deconv = OrderedDict()
+
+        # hidden layers
+        for layer in range(layers):
+
+            with tf.name_scope("cascade{}_conv_layer{}".format(str(cascade),str(layer))):
+
+                features = (2 ** layer) * feature_base
+                std_dev = np.sqrt(2. / (filter_size * filter_size * features))
+
+                if layer == 0:
+                    w1 = utils.weight_variable([filter_size, filter_size, channels_x, features], std_dev, "w1")
+                else:
+                    w1 = utils.weight_variable([filter_size, filter_size, features // 2, features], std_dev, "w1")
+
+                b1 = utils.bias_variable([features], "b1")
+
+                conv_1 = utils.conv2d(input_node, w1, b1, 1)
+
+                weights.append(w1)
+                biases.append(b1)
+                convs.append(conv_1)
+
+
+            input_node = convs[layer]
+
+        # aggregation layer
+        features = (2 ** layers) * channels_x
+        std_dev = np.sqrt(2. / (filter_size * filter_size * features))
+
+        if layer == 0:
+            w1 = utils.weight_variable([filter_size, filter_size, channels_x, features], std_dev, "w1")
+        else:
+            w1 = utils.weight_variable([filter_size, filter_size, features // 2, features], std_dev, "w1")
+
+        b1 = utils.bias_variable([features], "b1")
+
+        conv_1 = utils.conv2d(input_node, w1, b1, 1)
+
+        weights.append(w1)
+        biases.append(b1)
+        convs.append(conv_1)
+        input_node = convs[layers]
+
+
+        #residual layer
+        convs.append(tf.math.add(x, input_node))
+        output_image = convs[-1]
+
+        #output image complex
+        output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
+        output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
+
+        #input image complex fft
+        input_image_complex = tf.complex(x[:, :, :, 0], x[:, :, :, 1])
+        input_image_complex_fft = tf.spectral.fft2d(input_image_complex)
+
+        #data consistency
+        output_image_complex_fft = tf.add(input_image_complex_fft, tf.multiply((1.0-mask), output_image_complex_fft)
+        output_image_complex = tf.spectral.ifft2d(output_image_complex_fft)
+
+        output_image_complex = tf.reshape(output_image_complex, tf.stack([-1, n, m, 1]))
+        output_image_corrected = tf.concat([tf.real(output_image_complex), tf.imag(output_image_complex)],
+                                           axis=3)
+
+        input_node  = output_image_corrected
+
         
-    return output_image, variables
+    return input_node
 
 
 class DeepCascade(object):
     """
-    Implementation of Unet.
+    Implementation of Deep Cascade.
     
     :param x_channels: number of channels in input image
     :param y_channels: number of channels in output image
@@ -155,18 +132,15 @@ class DeepCascade(object):
         
         self.x = tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
         self.y = tf.placeholder("float", shape=[None, None, None, y_channels], name="y")
-        self.keep_prob = tf.placeholder("float", name="dropout_probability")
-        
+
         self.x_channels = x_channels
         self.y_channels = y_channels
-        self.create_summary = create_summary
-        
+
         output_image, self.variables = create_conv_network(x= self.x,
                                                            channels_x= x_channels,
                                                            channels_y= y_channels,
                                                            layers= layers,
                                                            feature_base= feature_base,
-                                                           keep_prob=self.keep_prob,
                                                            create_summary= create_summary)
         
         self.cost = self.__get_cost(output_image)
