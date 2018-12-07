@@ -103,7 +103,7 @@ def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=5, 
         input_image_complex_fft = tf.spectral.fft2d(input_image_complex)
 
         #data consistency
-        output_image_complex_fft = tf.add(input_image_complex_fft, tf.multiply((1.0-mask), output_image_complex_fft)
+        output_image_complex_fft = tf.add(input_image_complex_fft, tf.multiply((1.0-mask), output_image_complex_fft))
         output_image_complex = tf.spectral.ifft2d(output_image_complex_fft)
 
         output_image_complex = tf.reshape(output_image_complex, tf.stack([-1, n, m, 1]))
@@ -199,9 +199,9 @@ class DeepCascade(object):
         
 class Trainer(object):
     """
-    This will train a u-net instance.
+    This will train a deep cascade instance.
     
-    :param net: unet to train
+    :param net: deep cascade to train
     :param batch_size: size of training batch
     :param validation_batch_size: size of validation batch
     :param create_train_summary: add training summaries if True (e.g. gradients)
