@@ -93,12 +93,12 @@ def create_resnet(x, channels_x, channels_y, layers, is_train, reuse=False):
             b = utils.bias_variable([2], name="bias_output")
             output_image = utils.conv2d(input_node, w, b, stride=1)
             
-        output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
-        output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
-        output_image_complex_fft = tf.reshape(output_image_complex_fft, tf.stack([-1, n, m, 1]))
-        output_image_fft = tf.concat([tf.real(output_image_complex_fft), tf.imag(output_image_complex_fft)], axis=3)
+#        output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
+#        output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
+#        output_image_complex_fft = tf.reshape(output_image_complex_fft, tf.stack([-1, n, m, 1]))
+#        output_image_fft = tf.concat([tf.real(output_image_complex_fft), tf.imag(output_image_complex_fft)], axis=3)
             
-        return output_image, output_image_fft
+        return output_image#, output_image_fft
             
 class CnnResnet(object):
     """
@@ -121,27 +121,27 @@ class CnnResnet(object):
         self.y_channels = y_channels
         self.create_summary = create_summary
         
-        output_image, output_image_fft = create_resnet(x= self.x,
-                                                       channels_x= x_channels,
-                                                       channels_y= y_channels,
-                                                       layers= layers,
-                                                       is_train=self.is_train)
+        output_image = create_resnet(x= self.x,
+                                     channels_x= x_channels,
+                                     channels_y= y_channels,
+                                     layers= layers,
+                                     is_train=self.is_train)
         
-        self.cost = self.__get_cost(output_image, output_image_fft)
+        self.cost = self.__get_cost(output_image)
         with tf.name_scope("resuts"):
             self.predictor = output_image
     
-    def __get_cost(self, output, output_fft, lambda_=10):
+    def __get_cost(self, output):
         with tf.name_scope("cost"):
             loss_mse_image = tf.losses.mean_squared_error(self.y, output)
             
-            input_image_cmplx = tf.complex(self.x[:, :, :, 0], self.x[:, :, :, 1])
-            input_image_fft = tf.reshape(tf.spectral.fft2d(input_image_cmplx), tf.stack([-1, IMAGE_SIZE, IMAGE_SIZE, 1]))
-            
-            loss_mse_fft = tf.losses.mean_squared_error(tf.concat([tf.real(input_image_fft), tf.imag(input_image_fft)], axis=3),\
-                                                        output_fft*self.mask)
-        
-        return lambda_*loss_mse_image + loss_mse_fft
+#            input_image_cmplx = tf.complex(self.x[:, :, :, 0], self.x[:, :, :, 1])
+#            input_image_fft = tf.reshape(tf.spectral.fft2d(input_image_cmplx), tf.stack([-1, IMAGE_SIZE, IMAGE_SIZE, 1]))
+#            
+#            loss_mse_fft = tf.losses.mean_squared_error(tf.concat([tf.real(input_image_fft), tf.imag(input_image_fft)], axis=3),\
+#                                                        output_fft*self.mask)
+#        
+        return loss_mse_image
     
     
     def predict(self, model_path, test_image, test_mask):
