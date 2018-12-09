@@ -108,20 +108,28 @@ class CnnResnet(object):
     :param y_channels: number of channels in output image
     """
     
-    def __init__(self, x_channels, y_channels, layers=3, create_summary=True):
+    def __init__(self, x_channels, y_channels, layers=3, sampling_rate=0.25, create_summary=True):
         tf.reset_default_graph()
         
-        self.x =    tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
-        self.y =    tf.placeholder("float", shape=[None, None, None, y_channels], name="y")
-        self.mask = tf.placeholder("float", shape=[None, None, None, 1], name="mask")
-
+        # x_in is fully sampled Image during training and subsampled image during testing
         self.is_train = tf.placeholder("bool", name="batch_norm_is_train")
+        self.x_in = tf.placeholder("float", shape=[None, None, None, x_channels], name="x_in")
+        
+        
+        x_in_complex = tf.complex(self.x_in[:, :, :, 0], self.x_in[:, :, :, 1])
+        x_in_complex_fft = tf.spectral.fft2d(x_in_complex)
+        
+        k = int(IMAGE_SIZE*sampling_rate)
+        self.mask = self.__get_mask(k)
+        x_sub_complex = tf.reshape(tf.spectral.ifft2d(tf.multiply(x_in_complex_fft, tf.complex(self.mask, 0.))), [-1, IMAGE_SIZE, IMAGE_SIZE, 1])
+        
+        self.x_sub = tf.concat([tf.real(x_sub_complex), tf.imag(x_sub_complex)], axis=3)
         
         self.x_channels = x_channels
         self.y_channels = y_channels
         self.create_summary = create_summary
         
-        output_image = create_resnet(x= self.x,
+        output_image = create_resnet(x=self.x_sub,
                                      channels_x= x_channels,
                                      channels_y= y_channels,
                                      layers= layers,
@@ -131,10 +139,20 @@ class CnnResnet(object):
         with tf.name_scope("resuts"):
             self.predictor = output_image
     
+    def __get_mask(self, n_params, sigma=10.0):
+        # Variable mask parameters with cartesian subsampling
+        self.mu = tf.get_variable("mask_param", shape=[n_params], initializer=tf.random_uniform_initializer(minval=0., maxval=IMAGE_SIZE))
+        base = tf.tile(tf.reshape(tf.range(IMAGE_SIZE, dtype=float), [-1, 1]), [1, IMAGE_SIZE])
+        mask = tf.zeros([IMAGE_SIZE, IMAGE_SIZE], name="mask")
+        
+        for i in range(n_params):
+            mask = tf.add(mask, tf.exp((-sigma/2.)*tf.square(tf.subtract(base, self.mu[i]))))
+        
+        return mask
+    
     def __get_cost(self, output):
         with tf.name_scope("cost"):
-            loss_mse_image = tf.losses.mean_squared_error(self.y, output)
-            
+            loss_mse_image = tf.losses.mean_squared_error(self.x_in, output)
 #            input_image_cmplx = tf.complex(self.x[:, :, :, 0], self.x[:, :, :, 1])
 #            input_image_fft = tf.reshape(tf.spectral.fft2d(input_image_cmplx), tf.stack([-1, IMAGE_SIZE, IMAGE_SIZE, 1]))
 #            
@@ -144,7 +162,7 @@ class CnnResnet(object):
         return loss_mse_image
     
     
-    def predict(self, model_path, test_image, test_mask):
+    def predict(self, model_path, test_image):
         init = tf.global_variables_initializer()
         
         with tf.Session() as sess:
@@ -152,12 +170,8 @@ class CnnResnet(object):
             sess.run(init)
             # Restore model weights from previously saved model
             self.restore(sess, model_path)
-            
-            y_dummy = np.empty((test_image.shape[0], test_image.shape[1], test_image.shape[2], self.y_channels))
             prediction = sess.run(self.predictor,
-                                  feed_dict={self.x: test_image,
-                                             self.y: y_dummy,
-                                             self.mask: test_mask,
+                                  feed_dict={self.x_in: test_image,
                                              self.is_train: False})
             
         return prediction
@@ -242,17 +256,13 @@ class Trainer(object):
         
         return init
     
-    def store_prediction(self, sess, batch_x, batch_y, masks, name):
-        prediction = sess.run(self.net.predictor,
-                              feed_dict= {self.net.x: batch_x,
-                                          self.net.y: batch_y,
-                                          self.net.mask: masks,
-                                          self.net.is_train: False})
+    def store_prediction(self, sess, batch_x, name):
+        prediction, mask, x_sub = sess.run((self.net.predictor, self.net.mask, self.net.x_sub),
+                                           feed_dict= {self.net.x_in: batch_x,
+                                                       self.net.is_train: False})
         
         loss = sess.run(self.net.cost,
-                        feed_dict= {self.net.x: batch_x,
-                                    self.net.y: batch_y,
-                                    self.net.mask: masks,
+                        feed_dict= {self.net.x_in: batch_x,
                                     self.net.is_train: False})
         
         logging.info("Validation Loss = {}".format(loss))
@@ -262,21 +272,20 @@ class Trainer(object):
             shutil.rmtree(prediction_folder, ignore_errors=True)
         
         os.mkdir(prediction_folder)
-        utils.save_predictions_metric(batch_x, batch_y, prediction, masks, prediction_folder)
+        utils.save_predictions_metric(x_sub, batch_x, prediction, mask, prediction_folder)
     
-    def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y, batch_mask):
+    def output_minibatch_stats(self, sess, summary_writer, step, batch_x):
         # Calculate batch loss and accuracy
-        summary_str, loss = \
-        sess.run((self.summary_all, self.net.cost),
-                 feed_dict={self.net.x: batch_x,
-                            self.net.y: batch_y,
-                            self.net.mask: batch_mask,
+        summary_str, loss, mu = \
+        sess.run((self.summary_all, self.net.cost, self.net.mu),
+                 feed_dict={self.net.x_in: batch_x,
                             self.net.is_train: False})
         
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
         logging.info("Iter {:}, Minibatch Loss= {:.16f}"\
                      .format(step, loss))
+        logging.info("Iter {:}, mu = ".format(mu))
         
     def output_epoch_stats(self, epoch, loss, lr):
         logging.info(
@@ -319,7 +328,7 @@ class Trainer(object):
                     self.net.restore(sess, ckpt.model_checkpoint_path)
             
             test_x, test_y, masks = data_provider_validation(self.validation_batch_size)
-            self.store_prediction(sess, test_x, test_y, masks, "_init")
+            self.store_prediction(sess, test_y, "_init")
             
             summary_writer = tf.summary.FileWriter(output_path, graph=sess.graph)
             logging.info("Training Started")
@@ -329,18 +338,16 @@ class Trainer(object):
                 print(epoch)
                 for step, (batch_x, batch_y, batch_mask) in enumerate(data_provider_train(self.batch_size)):
                     _, loss, lr = sess.run((self.optimizer, self.net.cost, self.learning_rate),
-                                           feed_dict= {self.net.x: batch_x,
-                                                       self.net.y: batch_y,
-                                                       self.net.mask: batch_mask,
+                                           feed_dict= {self.net.x_in: batch_y,
                                                        self.net.is_train: True})
                     if step % display_step == 0:
-                        self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y, batch_mask)
+                        self.output_minibatch_stats(sess, summary_writer, step_counter, batch_y)
                     step_counter +=1
                         
                 self.output_epoch_stats(epoch, loss, lr)
-                self.store_prediction(sess, test_x, test_y, masks, "epoch_{}".format(epoch))
+                self.store_prediction(sess, test_y, "epoch_{}".format(epoch))
                 save_path = self.net.save(sess, save_path)
-                
+                logging.info(sess.run(self.net.mu.eval()))
                 if epoch % lr_update == 0 and epoch != 0:
                     sess.run(self.learning_rate.assign(self.learning_rate.eval()/2.0))
             

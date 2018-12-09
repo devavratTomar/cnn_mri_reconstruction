@@ -98,7 +98,7 @@ def save_predictions(input_image, ground_truth, prediction, masks, folder):
         img = np.clip(img, 0, 1)
         io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)
                 
-def save_predictions_metric(input_image, ground_truth, prediction, masks, folder):
+def save_predictions_metric(input_image, ground_truth, prediction, mask, folder):
     for image_iter in range(ground_truth.shape[0]):
         im = input_image[image_iter]
         gt = ground_truth[image_iter]
@@ -109,7 +109,8 @@ def save_predictions_metric(input_image, ground_truth, prediction, masks, folder
         
         img = np.concatenate((get_abs_complex(im_cmplx),
                               get_abs_complex(gt_cmplx),
-                              get_abs_complex(pd_cmplx)), axis=1)
+                              get_abs_complex(pd_cmplx),
+                              get_abs_complex(mask)), axis=1)
 
         metrics = get_error_metrics(gt_cmplx, pd_cmplx)
         metric_str = "SSIM: {:.3f}, SNR: {:.1f}, PSNR: {:.2f}, l2-error: {:.3f}, l1-error: {:.3f}\n".format(metrics[0],\
