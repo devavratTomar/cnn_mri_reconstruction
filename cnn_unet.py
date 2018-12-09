@@ -139,10 +139,10 @@ class CnnResnet(object):
         with tf.name_scope("resuts"):
             self.predictor = output_image
     
-    def __get_mask(self, n_params, sigma=10.0):
+    def __get_mask(self, n_params, sigma=20.0):
         # Variable mask parameters with cartesian subsampling
         self.mu = tf.get_variable("mask_param", shape=[n_params], initializer=tf.random_uniform_initializer(minval=0., maxval=IMAGE_SIZE))
-        base = tf.tile(tf.reshape(tf.range(IMAGE_SIZE, dtype=float), [-1, 1]), [1, IMAGE_SIZE])
+        base = tf.tile(tf.reshape(tf.range(IMAGE_SIZE, dtype="float"), [-1, 1]), [1, IMAGE_SIZE])
         mask = tf.zeros([IMAGE_SIZE, IMAGE_SIZE], name="mask")
         
         for i in range(n_params):
@@ -216,7 +216,7 @@ class Trainer(object):
         self.create_train_summary = create_train_summary
         
         # we choose adam optimezer for this problem.
-        learning_rate = 0.0001
+        learning_rate = 0.001
         self.learning_rate = tf.Variable(learning_rate, name="learning_rate")
     
     def __get_optimizer(self, global_step):
@@ -347,7 +347,7 @@ class Trainer(object):
                 self.output_epoch_stats(epoch, loss, lr)
                 self.store_prediction(sess, test_y, "epoch_{}".format(epoch))
                 save_path = self.net.save(sess, save_path)
-                logging.info(sess.run(self.net.mu.eval()))
+                logging.info(sess.run(self.net.mu))
                 if epoch % lr_update == 0 and epoch != 0:
                     sess.run(self.learning_rate.assign(self.learning_rate.eval()/2.0))
             
