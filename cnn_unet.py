@@ -136,19 +136,21 @@ class CnnResnet(object):
                                      is_train=self.is_train)
         
         self.cost = self.__get_cost(output_image)
+        self.resnet_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="Resnet")
         with tf.name_scope("resuts"):
             self.predictor = output_image
     
     def __get_mask(self, n_params, sigma=20.0):
         # Variable mask parameters with cartesian subsampling
-        self.mu = tf.get_variable("mask_param", shape=[n_params], initializer=tf.random_uniform_initializer(minval=0., maxval=IMAGE_SIZE))
-        base = tf.tile(tf.reshape(tf.range(IMAGE_SIZE, dtype="float"), [-1, 1]), [1, IMAGE_SIZE])
-        mask = tf.zeros([IMAGE_SIZE, IMAGE_SIZE], name="mask")
-        
-        for i in range(n_params):
-            mask = tf.add(mask, tf.exp((-sigma/2.)*tf.square(tf.subtract(base, self.mu[i]))))
-        
-        return mask
+        with tf.variable_scope("mask_scope"):
+            self.mu = tf.get_variable("mask_param", shape=[n_params], initializer=tf.random_uniform_initializer(minval=0., maxval=IMAGE_SIZE))
+            base = tf.tile(tf.reshape(tf.range(IMAGE_SIZE, dtype="float"), [-1, 1]), [1, IMAGE_SIZE])
+            mask = tf.zeros([IMAGE_SIZE, IMAGE_SIZE], name="mask")
+            
+            for i in range(n_params):
+                mask = tf.add(mask, tf.exp((-sigma/2.)*tf.square(tf.subtract(base, self.mu[i]))))
+            
+            return mask
     
     def __get_cost(self, output):
         with tf.name_scope("cost"):
@@ -216,20 +218,21 @@ class Trainer(object):
         self.create_train_summary = create_train_summary
         
         # we choose adam optimezer for this problem.
-        learning_rate = 0.001
+        learning_rate = 0.0001
         self.learning_rate = tf.Variable(learning_rate, name="learning_rate")
     
     def __get_optimizer(self, global_step):
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
-            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.net.cost, global_step=global_step)
-            return optimizer
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.net.cost, var_list=self.net.resnet_variables, global_step=global_step)
+            optimizer_mask = tf.train.AdamOptimizer(learning_rate=0.1).minimize(self.net.cost, var_list=self.net.mu, global_step=global_step)
+            return optimizer, optimizer_mask
     
     def __initialize(self, output_path, restore, prediction_path):
         global_step = tf.Variable(0, name="global_step")
         
         tf.summary.scalar("loss", self.net.cost)
-        self.optimizer = self.__get_optimizer(global_step)
+        self.optimizer, self.optimizer_mask = self.__get_optimizer(global_step)
         
         tf.summary.scalar("learning_rate", self.learning_rate)
         
@@ -337,6 +340,10 @@ class Trainer(object):
             for epoch in range(epochs):
                 print(epoch)
                 for step, (batch_x, batch_y, batch_mask) in enumerate(data_provider_train(self.batch_size)):
+                    sess.run(self.optimizer_mask, 
+                             feed_dict= {self.net.x_in: batch_y,
+                                         self.net.is_train: True})
+                    
                     _, loss, lr = sess.run((self.optimizer, self.net.cost, self.learning_rate),
                                            feed_dict= {self.net.x_in: batch_y,
                                                        self.net.is_train: True})

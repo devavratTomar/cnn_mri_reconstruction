@@ -5,7 +5,7 @@ N_EPOCHS = 50
 data_provider_train = DataProvider(directory_name='./data/train', epochs=1, file_extension='.npy')
 data_provider_test = DataProvider(directory_name='./data/test', epochs=0, file_extension='.npy')
 
-u_net = CnnResnet(x_channels=2, y_channels=2, layers=1)
+u_net = CnnResnet(x_channels=2, y_channels=2, layers=5)
 
 trainer = Trainer(u_net, batch_size=15, validation_batch_size=50)
 trainer.train(data_provider_train.get_images_iter,
