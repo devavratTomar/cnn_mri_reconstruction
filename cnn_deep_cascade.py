@@ -10,6 +10,8 @@ import logging
 import os
 import shutil
 
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
 def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=5, feature_base=64, filter_size=3, create_summary=True):
