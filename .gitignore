@@ -6,3 +6,5 @@
 .vscode
 /deep-mri-reconstruction
 \.idea/
+data_processor.pyc
+cnn_deep_cascade.pyc

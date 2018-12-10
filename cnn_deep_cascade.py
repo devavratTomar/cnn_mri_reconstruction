@@ -132,7 +132,7 @@ class DeepCascade(object):
     :param y_channels: number of channels in output image
     """
     
-    def __init__(self, x_channels, y_channels, layers, mask, feature_base, create_summary=True):
+    def __init__(self, x_channels, y_channels, layers, mask_in, feature_base, create_summary=True):
         tf.reset_default_graph()
         
         self.x = tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
@@ -144,7 +144,7 @@ class DeepCascade(object):
         output_image, self.variables = create_conv_network(x= self.x,
                                                            channels_x= x_channels,
                                                            channels_y= y_channels,
-                                                           mask,
+                                                           mask=mask_in,
                                                            layers= layers,
                                                            feature_base= feature_base,
                                                            create_summary= create_summary)
