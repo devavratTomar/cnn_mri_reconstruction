@@ -108,7 +108,7 @@ class CnnResnet(object):
     :param y_channels: number of channels in output image
     """
     
-    def __init__(self, x_channels, y_channels, layers=3, sampling_rate=0.25, create_summary=True):
+    def __init__(self, x_channels, y_channels, layers=3, sampling_rate=0.10, create_summary=True):
         tf.reset_default_graph()
         
         # x_in is fully sampled Image during training and subsampled image during testing
@@ -135,17 +135,26 @@ class CnnResnet(object):
                                      layers= layers,
                                      is_train=self.is_train)
         
-        self.cost = self.__get_cost(output_image)
         self.resnet_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="Resnet")
+        self.mask_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="mask_scope/mask_param")
+        self.cost = self.__get_cost(output_image)
+        
         with tf.name_scope("resuts"):
             self.predictor = output_image
     
-    def __get_mask(self, n_params, sigma=20.0):
+    def __get_mask(self, n_params, sigma=10.0):
         # Variable mask parameters with cartesian subsampling
         with tf.variable_scope("mask_scope"):
-            self.mu = tf.get_variable("mask_param", shape=[n_params], initializer=tf.random_uniform_initializer(minval=0., maxval=IMAGE_SIZE))
+            #Unifom initialization
+            param_init = IMAGE_SIZE*np.ones(n_params, dtype=np.float32)/n_params
+            param_init = np.sqrt(param_init -0.7)
+            self.mu = tf.cumsum(0.7 + tf.square(tf.get_variable("mask_param", initializer=param_init)), exclusive=True)
+            
+            self.mu = (IMAGE_SIZE - 1.0)*self.mu/self.mu[-1]
+            #self.mu = (IMAGE_SIZE-1.0)*tf.sigmoid(tf.get_variable("mask_param", shape=[n_params], initializer=tf.truncated_normal_initializer(mean=0.0, stddev=2)))
+            
             base = tf.tile(tf.reshape(tf.range(IMAGE_SIZE, dtype="float"), [-1, 1]), [1, IMAGE_SIZE])
-            mask = tf.zeros([IMAGE_SIZE, IMAGE_SIZE], name="mask")
+            mask = tf.zeros([IMAGE_SIZE, IMAGE_SIZE])
             
             for i in range(n_params):
                 mask = tf.add(mask, tf.exp((-sigma/2.)*tf.square(tf.subtract(base, self.mu[i]))))
@@ -155,13 +164,14 @@ class CnnResnet(object):
     def __get_cost(self, output):
         with tf.name_scope("cost"):
             loss_mse_image = tf.losses.mean_squared_error(self.x_in, output)
+            reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) 
 #            input_image_cmplx = tf.complex(self.x[:, :, :, 0], self.x[:, :, :, 1])
 #            input_image_fft = tf.reshape(tf.spectral.fft2d(input_image_cmplx), tf.stack([-1, IMAGE_SIZE, IMAGE_SIZE, 1]))
 #            
 #            loss_mse_fft = tf.losses.mean_squared_error(tf.concat([tf.real(input_image_fft), tf.imag(input_image_fft)], axis=3),\
 #                                                        output_fft*self.mask)
 #        
-        return loss_mse_image
+        return loss_mse_image + 1e-7*sum(reg_losses)
     
     
     def predict(self, model_path, test_image):
@@ -225,7 +235,7 @@ class Trainer(object):
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.net.cost, var_list=self.net.resnet_variables, global_step=global_step)
-            optimizer_mask = tf.train.AdamOptimizer(learning_rate=0.1).minimize(self.net.cost, var_list=self.net.mu, global_step=global_step)
+            optimizer_mask = tf.train.AdamOptimizer(learning_rate=0.001).minimize(self.net.cost, var_list=self.net.mask_variables, global_step=global_step)
             return optimizer, optimizer_mask
     
     def __initialize(self, output_path, restore, prediction_path):
@@ -288,7 +298,7 @@ class Trainer(object):
         summary_writer.flush()
         logging.info("Iter {:}, Minibatch Loss= {:.16f}"\
                      .format(step, loss))
-        logging.info("Iter {:}, mu = ".format(mu))
+        logging.info(mu)
         
     def output_epoch_stats(self, epoch, loss, lr):
         logging.info(
@@ -340,13 +350,13 @@ class Trainer(object):
             for epoch in range(epochs):
                 print(epoch)
                 for step, (batch_x, batch_y, batch_mask) in enumerate(data_provider_train(self.batch_size)):
-                    sess.run(self.optimizer_mask, 
+                    sess.run(self.optimizer_mask,
                              feed_dict= {self.net.x_in: batch_y,
-                                         self.net.is_train: True})
+                                         self.net.is_train: False})
                     
                     _, loss, lr = sess.run((self.optimizer, self.net.cost, self.learning_rate),
                                            feed_dict= {self.net.x_in: batch_y,
-                                                       self.net.is_train: True})
+                                                       self.net.is_train: False})
                     if step % display_step == 0:
                         self.output_minibatch_stats(sess, summary_writer, step_counter, batch_y)
                     step_counter +=1
@@ -354,7 +364,9 @@ class Trainer(object):
                 self.output_epoch_stats(epoch, loss, lr)
                 self.store_prediction(sess, test_y, "epoch_{}".format(epoch))
                 save_path = self.net.save(sess, save_path)
+                
                 logging.info(sess.run(self.net.mu))
+                
                 if epoch % lr_update == 0 and epoch != 0:
                     sess.run(self.learning_rate.assign(self.learning_rate.eval()/2.0))
             
