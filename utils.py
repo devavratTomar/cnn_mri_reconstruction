@@ -11,22 +11,44 @@ from skimage.measure import compare_ssim as ssim
 
 LAMBDA = 2
 
-def weight_variable(shape, stddev, name):
-    initial = tf.truncated_normal(shape, stddev=stddev)
-    return tf.Variable(initial, name=name)
+def get_variable(shape, name):
+    return tf.get_variable(name=name,
+                           shape=shape,
+                           initializer=tf.contrib.layers.xavier_initializer(),
+                           regularizer=tf.contrib.layers.l2_regularizer(scale=1.))
+    
+def padding_circular(x, padding):
+    out = tf.concat([x[:, -padding:, :, :], x, x[:, 0:padding, :, :]], axis=1)
+    out = tf.concat([out[:, :, -padding:, :], out, out[:, :, 0:padding, :]], axis=2)  
+    return out
 
-def weight_variable_devonc(shape, stddev, name):
-    return tf.Variable(tf.truncated_normal(shape, stddev=stddev), name=name)
+def weight_variable(shape, name):
+    return tf.get_variable(name=name,
+                           shape=shape,
+                           initializer=tf.contrib.layers.xavier_initializer(uniform=False),
+                           regularizer=tf.contrib.layers.l2_regularizer(scale=1.))
+
+def weight_variable_devonc(shape, name):
+    return tf.get_variable(name=name,
+                           shape=shape,
+                           initializer=tf.contrib.layers.xavier_initializer(uniform=False),
+                           regularizer=tf.contrib.layers.l2_regularizer(scale=1.))
 
 def bias_variable(shape, name):
-    initial = tf.constant(0.1, shape=shape)
-    return tf.Variable(initial, name=name)
+    initial = tf.constant(0.0, shape=shape)
+    return tf.get_variable(name, initializer=initial)
 
-def conv2d(x, W, b, keep_prob):
+def conv2d(x, W, b, stride=1, add_custom_pad=True):
     with tf.name_scope("conv2d"):
-        conv_2d = tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='SAME')
+        padding = ((tf.shape(W)[0] - 1)//2)
+        if not add_custom_pad:
+            conv_2d = tf.nn.conv2d(x, W, strides=[1, stride, stride, 1], padding='VALID')
+        else:
+            x_padded = padding_circular(x, padding)
+            conv_2d = tf.nn.conv2d(x_padded, W, strides=[1, stride, stride, 1], padding='VALID')
+        
         conv_2d_b = tf.nn.bias_add(conv_2d, b)
-        return tf.nn.dropout(conv_2d_b, keep_prob)
+        return conv_2d_b
 
 def deconv2d(x, W,stride):
     with tf.name_scope("deconv2d"):
@@ -82,48 +104,32 @@ def save_predictions(input_image, ground_truth, prediction, masks, folder):
 #        img_ac = np.clip(img_ac, 0, 1)
 #        io.imsave(os.path.join(folder, str(image_iter) + '_actual_' + '.png'), img_ac)
                 
-def save_predictions_after_transform(input_image, ground_truth, prediction, mask, lambda_, folder):
-    for image_iter in range(input_image.shape[0]):
-        msk = mask[image_iter]
+def save_predictions_metric(input_image, ground_truth, prediction, mask, folder):
+    for image_iter in range(ground_truth.shape[0]):
+        im = input_image[image_iter]
         gt = ground_truth[image_iter]
         pd = prediction[image_iter]
         gt_cmplx = gt[:,:,0] + 1j* gt[:,:,1] # ground truth complex(image domain)
         pd_cmplx = pd[:,:,0] + 1j* pd[:,:,1] # prediction complex(image domain) 
-        msk_cmplx = msk[:,:,0] + 1j* msk[:,:,1] # mask complex(image domain)
+        im_cmplx = im[:,:,0] + 1j* im[:,:,1]
         
-        bmask = np.fft.fftshift(np.fft.fft2(msk_cmplx)) # binary mask in the fourier domain
-        
-        # recover true ground truth image
-        tr_img = (lambda_+1)*np.fft.fftshift(np.fft.fft2(gt_cmplx))/(lambda_*bmask + np.ones((gt.shape[0],gt.shape[1])))
-        tr_img = np.fft.ifft2(np.fft.fftshift(tr_img))
+        img = np.concatenate((get_abs_complex(im_cmplx),
+                              get_abs_complex(gt_cmplx),
+                              get_abs_complex(pd_cmplx),
+                              get_abs_complex(mask)), axis=1)
 
-        # recover true predicted image
-        pre_img = (lambda_+1)*np.fft.fftshift(np.fft.fft2(pd_cmplx))/(lambda_*bmask + np.ones((gt.shape[0],gt.shape[1])))
-        pre_img = np.fft.ifft2(np.fft.fftshift(pre_img))
+        metrics = get_error_metrics(gt_cmplx, pd_cmplx)
+        metric_str = "SSIM: {:.3f}, SNR: {:.1f}, PSNR: {:.2f}, l2-error: {:.3f}, l1-error: {:.3f}\n".format(metrics[0],\
+                     metrics[1],
+                     metrics[2],
+                     metrics[3],
+                     metrics[4])
+        with open('metrics.txt','a') as f:
+            f.write(str(image_iter) + ' : '+ metric_str)
         
+        img = np.clip(img, 0, 1)
+        io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)
         
-        img = np.concatenate((get_abs(input_image[image_iter]),
-                              np.abs(bmask),
-                              np.abs(tr_img),
-                              np.abs(pre_img)), axis=1)
-#         plt.imshow(img)
-#         plt.show()
-
-        diff = tr_img - pre_img
-        xrange = max(np.abs(pre_img).flatten())
-        metrics = get_error_metrics(tr_img, pre_img)
-
-        print('SSIM: {:.3f}, SNR: {:.1f}, PSNR: {:.2f}, l2-error: {:.3f}, l1-error: {:.3f}'.format(metrics[0], \
-                                                                                              metrics[1],
-                                                                                              metrics[2],
-                                                                                              metrics[3],
-                                                                                              metrics[4]))
-        # TODO(mfsahin): save the reconstructed image to a folder and performance metrics
-        # to a .csv file along with subsampling rates.
-        
-#         img = np.clip(img, 0, 1)
-#         io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)      
-
 def get_error_metrics(f, I):
     """
     Returns the performance metrics given the true image and reconstructed image
@@ -133,8 +139,8 @@ def get_error_metrics(f, I):
     N = f.size
     
     # convert the images into single precision
-    f = np.abs(np.float32(f)) 
-    I = np.abs(np.float32(I))
+    f = np.abs(f) 
+    I = np.abs(I)
     
     # TODO(mfsahin): double check this metrics
     l2_error = np.linalg.norm(f - I, 'fro')

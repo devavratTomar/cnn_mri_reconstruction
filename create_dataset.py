@@ -77,14 +77,15 @@ def augment_data(image):
     images.append(np.flip(image, axis=1))    
     return images
 
-def process_save_mat_data(images, output_folder, strip_width=4):
-    images = subsample_images(images)
+def process_save_mat_data(images, output_folder, strip_width=4, subsample_images=False):
+    if subsample_images:
+        images = subsample_images(images)
     
     n_images, N, M = images.shape 
     if os.path.exists(output_folder):
         shutil.rmtree(output_folder, ignore_errors=True)    
     os.mkdir(output_folder)
-    mask = get_opt_mask()
+    mask = get_opt_mask(1)
     
     for it in range(n_images):
         print("Generating data for image: {nbr}, at path: {output_folder}".format(nbr=it,output_folder=output_folder))        
@@ -100,12 +101,12 @@ def process_save_mat_data(images, output_folder, strip_width=4):
             save_data_image[:,:,4] = mask
             np.save(output_folder + '/' + 'Mri_' + str(it) + '_aug_'+ str(aug_type), save_data_image)
                 
-                
-data_1 = load_mat_data('./data_original/train.mat')
-data_2 = load_mat_data('./data_original/test.mat')
-data_net = np.concatenate((data_1, data_2), axis=0)
-
-n_train = int(TRAIN_SPLIT*data_net.shape[0])
-
-process_save_mat_data(data_net[:n_train], './data/train')
-process_save_mat_data(data_net[n_train:], './data/test')
+if __name__ == "__main__":
+    data_1 = load_mat_data('./data_original/train.mat')
+    data_2 = load_mat_data('./data_original/test.mat')
+    data_net = np.concatenate((data_1, data_2), axis=0)
+    
+    n_train = int(TRAIN_SPLIT*data_net.shape[0])
+    
+    process_save_mat_data(data_net[:n_train], './data/train')
+    process_save_mat_data(data_net[n_train:], './data/test')

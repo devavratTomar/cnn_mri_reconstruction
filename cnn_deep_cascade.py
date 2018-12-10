@@ -5,7 +5,6 @@ Implementation of Deep Cascade in tensorflow
 import tensorflow as tf
 import utils
 import numpy as np
-from collections import OrderedDict
 import logging
 import os
 import shutil
@@ -14,12 +13,15 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=3, feature_base=64, filter_size=3, create_summary=True):
+def create_conv_network(x, channels_x,
+                        mask, cascade_n=5, layers=3, features=64, filter_size=3,
+                        lambda_ = 3.,
+                        reuse = False,
+                        create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 2 channels.
-    :param channels_y: number of channels in the output image. For Mri, output has 2 channels.
-    :param mask: mask applied on fourier transform of input image.
+    :param mask: mask applied on fourier transform of input image. Shape must be [1, n, m]
     :param cascade_n: depth of cascade.
     :param layers: number of layers in deep cascade architecture.
     :param feature_base: Neurons in first layer of cnn. Next layers have twice the number of neurons in previous layers.
@@ -28,100 +30,69 @@ def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=3, 
     """
     
     logging.info("Layers: {layers}, features: {features}, filter size {fill_size}x{fill_size},"
-                 "input channels {in_channels}, output channels {out_channels}".format(
+                 "input channels {in_channels}".format(
                   layers=layers,
-                  features=feature_base,
+                  features=features,
                   fill_size=filter_size,
-                  in_channels=channels_x,
-                  out_channels=channels_y))
+                  in_channels=channels_x))
     
-    #placeholder for input image
-    with tf.name_scope("input_image"):
-        n = tf.shape(x)[1]
-        m = tf.shape(x)[2]
+    mask = tf.complex(mask, 0.)
+    with tf.variable_scope("DeepCascade", reuse=reuse):
+        #placeholder for input image
+        with tf.name_scope("input_image"):
+            n = tf.shape(x)[1]
+            m = tf.shape(x)[2]
+            
+            x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
+            x_image_cascade = x_image
+            
+        # create cascade layers
+        for cascade in range(cascade_n):
+            with tf.name_scope("cascade_net_{}".format(cascade)):
+                with tf.variable_scope("cascade{}".format(cascade)):
+                    # hidden layers
+                    input_node = x_image_cascade
+                    for layer in range(layers):
+                        if layer == 0:
+                            w = utils.weight_variable([filter_size, filter_size, channels_x, features], "w1_layer{}".format(layer))
+                        else:
+                            w = utils.weight_variable([filter_size, filter_size, features, features], "w1_layer{}".format(layer))
+                        b = utils.bias_variable([features], "b_layer{}".format(layer))
+                        conv = utils.conv2d(input_node, w, b, 1)
+                        conv = tf.nn.leaky_relu(conv)        
+                        
+                        input_node = conv
+                    
+                    # aggregation layer
+                    w = utils.weight_variable([filter_size, filter_size, features, channels_x], "w_agg")
+                    b = utils.bias_variable([channels_x], "b_agg")
+                    
+                    output_image = utils.conv2d(input_node, w, b, 1)
+                    
+                    # don't apply activation when aggregating
+                    # residual layer
+                    output_image = tf.add(x_image_cascade, output_image)
+            
+                    #output image complex
+                    output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
+                    output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
+            
+                    #input image complex fft
+                    input_image_complex = tf.complex(x_image[:, :, :, 0], x_image[:, :, :, 1])
+                    input_image_complex_fft = tf.spectral.fft2d(input_image_complex)
+            
+                    #data consistency
+                    output_image_complex_fft = tf.add((lambda_*input_image_complex_fft + tf.multiply(mask, output_image_complex_fft))/(lambda_ + 1.),
+                                                      tf.multiply((1.0-mask), output_image_complex_fft))
+                    
+                    output_image_complex = tf.spectral.ifft2d(output_image_complex_fft)
+                    output_image_complex = tf.reshape(output_image_complex, tf.stack([-1, n, m, 1]))
+                    output_image_corrected = tf.concat([tf.real(output_image_complex), tf.imag(output_image_complex)],
+                                                       axis=3)
+                    
+                    x_image_cascade = output_image_corrected
         
-        x_image = tf.reshape(x, tf.stack([-1, n, m, channels_x]))
-        input_node = x_image
-
-
-    weights = []
-    biases = []
-
-    # create cascade layers
-    for cascade in range(cascade_n):
-
-        # hidden layers
-        for layer in range(layers):
-
-            with tf.name_scope("cascade{}_conv_layer{}".format(str(cascade),str(layer))):
-
-                features = (2 ** layer) * feature_base
-                std_dev = np.sqrt(2. / (filter_size * filter_size * features))
-
-                if layer == 0:
-                    w1 = utils.weight_variable([filter_size, filter_size, channels_x, features], std_dev, "w1")
-                else:
-                    w1 = utils.weight_variable([filter_size, filter_size, features // 2, features], std_dev, "w1")
-
-                b1 = utils.bias_variable([features], "b1")
-
-                conv_1 = utils.conv2d(input_node, w1, b1, 1)
-                conv_1 = tf.nn.leaky_relu(conv_1)
-
-                weights.append(w1)
-                biases.append(b1)
-
-
-            input_node = conv_1
-
-        # aggregation layer
-        features = (2 ** layers) * channels_x
-        std_dev = np.sqrt(2. / (filter_size * filter_size * features))
-
-        if layer == 0:
-            w1 = utils.weight_variable([filter_size, filter_size, channels_x, features], std_dev, "w1")
-        else:
-            w1 = utils.weight_variable([filter_size, filter_size, features // 2, features], std_dev, "w1")
-
-        b1 = utils.bias_variable([features], "b1")
-
-        conv_1 = utils.conv2d(input_node, w1, b1, 1)
-        conv_1 = tf.nn.leaky_relu(conv_1)
-
-        weights.append(w1)
-        biases.append(b1)
-        input_node = conv_1
-
-
-        #residual layer
-        output_image = tf.math.add(x, input_node)
-
-        #output image complex
-        output_image_complex = tf.complex(output_image[:, :, :, 0], output_image[:, :, :, 1])
-        output_image_complex_fft = tf.spectral.fft2d(output_image_complex)
-
-        #input image complex fft
-        input_image_complex = tf.complex(x[:, :, :, 0], x[:, :, :, 1])
-        input_image_complex_fft = tf.spectral.fft2d(input_image_complex)
-
-        #data consistency
-        output_image_complex_fft = tf.add(input_image_complex_fft, tf.multiply((1.0-mask), output_image_complex_fft))
-        output_image_complex = tf.spectral.ifft2d(output_image_complex_fft)
-
-        output_image_complex = tf.reshape(output_image_complex, tf.stack([-1, n, m, 1]))
-        output_image_corrected = tf.concat([tf.real(output_image_complex), tf.imag(output_image_complex)],
-                                           axis=3)
-
-        input_node  = output_image_corrected
-
-    variables = []
-    for w in weights:
-        variables.append(w)
-
-    for b in biases:
-        variables.append(b)
-
-    return input_node, variables
+        return output_image_corrected
 
 
 class DeepCascade(object):
@@ -132,36 +103,31 @@ class DeepCascade(object):
     :param y_channels: number of channels in output image
     """
     
-    def __init__(self, x_channels, y_channels, layers, mask_in, feature_base, create_summary=True):
+    def __init__(self, x_channels, layers, ncascade, mask_in, features, filter_size, create_summary=True):
         tf.reset_default_graph()
         
         self.x = tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
-        self.y = tf.placeholder("float", shape=[None, None, None, y_channels], name="y")
-
-        self.x_channels = x_channels
-        self.y_channels = y_channels
-
-        output_image, self.variables = create_conv_network(x= self.x,
-                                                           channels_x= x_channels,
-                                                           channels_y= y_channels,
-                                                           mask=mask_in,
-                                                           layers= layers,
-                                                           feature_base= feature_base,
-                                                           create_summary= create_summary)
+        self.y = tf.placeholder("float", shape=[None, None, None, x_channels], name="y")
+        self.mask = mask_in.astype(np.float32)[np.newaxis, :, :]
+        output_image = create_conv_network(x= self.x,
+                                           channels_x= x_channels,
+                                           mask=self.mask,
+                                           cascade_n=ncascade,
+                                           layers=layers,
+                                           features=features,
+                                           filter_size=filter_size,
+                                           create_summary= create_summary)
         
-        self.cost = self.__get_cost(output_image)
-        self.gradients_node = tf.gradients(self.cost, self.variables)
+        self.cost = self.__get_cost(output_image)        
         
         with tf.name_scope("resuts"):
             self.predictor = output_image
     
-    def __get_cost(self, output_image, regulizer=1):
+    def __get_cost(self, output_image):
         with tf.name_scope("cost"):
-            loss = tf.losses.mean_squared_error(self.y, output_image, reduction=tf.losses.Reduction.SUM_BY_NONZERO_WEIGHTS)
-            if regulizer !=0:
-                regularizers = sum([tf.nn.l2_loss(variable) for variable in self.variables])
-                loss += 1e-6*regulizer*regularizers
-        return loss
+            loss = tf.losses.mean_squared_error(self.y, output_image)
+            reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, scope="DeepCascade")
+        return loss + 1e-6*sum(reg_losses)
     
     def predict(self, model_path, test_image):
         init = tf.global_variables_initializer()
@@ -228,11 +194,6 @@ class Trainer(object):
     
     def __initialize(self, output_path, restore, prediction_path):
         global_step = tf.Variable(0, name="global_step")
-        
-        self.norm_gradients_node = tf.Variable(tf.constant(0.0, shape=[len(self.net.gradients_node)]), name="norm_gradient")
-        
-        if self.net.create_summary and self.create_train_summary:
-            tf.summary.histogram("norm_gradients", self.norm_gradients_node)
             
         tf.summary.scalar("loss", self.net.cost)
         
@@ -263,9 +224,8 @@ class Trainer(object):
             
         return init
     
-    def store_prediction(self, sess, batch_x, batch_y, masks, name):
-        prediction = sess.run(self.net.predictor, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: 1.})
-        loss = sess.run(self.net.cost, feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: 1.})
+    def store_prediction(self, sess, batch_x, batch_y, name):
+        prediction, loss = sess.run((self.net.predictor, self.net.cost), feed_dict= {self.net.x: batch_x, self.net.y: batch_y})
         
         logging.info("Validaiton loss = {:.4f}".format(loss))
         
@@ -275,13 +235,13 @@ class Trainer(object):
             shutil.rmtree(prediction_folder, ignore_errors=True)
             
         os.mkdir(prediction_folder)
-        utils.save_predictions(batch_x, batch_y, prediction, masks, prediction_folder)
+        utils.save_predictions_metric(batch_x, batch_y, prediction, self.net.mask[0], prediction_folder)
         
     
     def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
         # Calculate batch loss and accuracy
-        summary_str, loss, predictions = sess.run((self.summary_all, self.net.cost, self.net.predictor),
-                                                  feed_dict={self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: 1.})
+        summary_str, loss = sess.run((self.summary_all, self.net.cost),
+                                     feed_dict={self.net.x: batch_x, self.net.y: batch_y})
         
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
@@ -291,7 +251,6 @@ class Trainer(object):
     def output_epoch_stats(self, epoch, loss, lr):
         logging.info(
             "Epoch {:}, loss: {:.16f}, learning rate: {:.8f}".format(epoch, loss, lr))
-
     
     def train(self, data_provider_train, data_provider_validation,
               output_path,
@@ -329,8 +288,8 @@ class Trainer(object):
                 if ckpt and ckpt.model_checkpoint_path:
                     self.net.restore(sess, ckpt.model_checkpoint_path)
                     
-            test_x, test_y, masks = data_provider_validation(self.validation_batch_size)
-            self.store_prediction(sess, test_x, test_y, masks, "_init")
+            test_x, test_y = data_provider_validation(self.validation_batch_size)
+            self.store_prediction(sess, test_x, test_y, "_init")
             
             summary_writer = tf.summary.FileWriter(output_path, graph=sess.graph)
             logging.info("Training Started")
@@ -339,19 +298,15 @@ class Trainer(object):
             for epoch in range(epochs):
                 print(epoch)
                 for step, (batch_x, batch_y) in enumerate(data_provider_train(self.batch_size)):
-                    _, loss, lr, gradients = sess.run((self.optimizer, self.net.cost, self.learning_rate_node, self.net.gradients_node),
-                                                      feed_dict= {self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: keep_prob})
+                    _, loss, lr = sess.run((self.optimizer, self.net.cost, self.learning_rate_node),
+                                           feed_dict= {self.net.x: batch_x, self.net.y: batch_y})
                     
-                    if self.net.create_summary and self.create_train_summary:
-                        gradients_norm = [np.linalg.norm(gradient) for gradient in gradients]
-                        self.norm_gradients_node.assign(gradients_norm).eval()
-                        
                     if step % display_step == 0:
                         self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y)
                     step_counter +=1
                         
                 self.output_epoch_stats(epoch, loss, lr)
-                self.store_prediction(sess, test_x, test_y, masks, "epoch_{}".format(epoch))
+                self.store_prediction(sess, test_x, test_y, "epoch_{}".format(epoch))
                 save_path = self.net.save(sess, save_path)
             
             summary_writer.close()
