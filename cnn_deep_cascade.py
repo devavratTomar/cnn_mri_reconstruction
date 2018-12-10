@@ -14,13 +14,13 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=5, feature_base=64, filter_size=3, create_summary=True):
+def create_conv_network(x, channels_x, channels_y, mask, cascade_n=5, layers=3, feature_base=64, filter_size=3, create_summary=True):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 2 channels.
     :param channels_y: number of channels in the output image. For Mri, output has 2 channels.
     :param mask: mask applied on fourier transform of input image.
-    :param cascade_n: depth of cascase.
+    :param cascade_n: depth of cascade.
     :param layers: number of layers in deep cascade architecture.
     :param feature_base: Neurons in first layer of cnn. Next layers have twice the number of neurons in previous layers.
     :param filter_size: size of convolution filter
@@ -132,7 +132,7 @@ class DeepCascade(object):
     :param y_channels: number of channels in output image
     """
     
-    def __init__(self, x_channels, y_channels, layers, feature_base, create_summary=True):
+    def __init__(self, x_channels, y_channels, layers, mask, feature_base, create_summary=True):
         tf.reset_default_graph()
         
         self.x = tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
@@ -144,6 +144,7 @@ class DeepCascade(object):
         output_image, self.variables = create_conv_network(x= self.x,
                                                            channels_x= x_channels,
                                                            channels_y= y_channels,
+                                                           mask,
                                                            layers= layers,
                                                            feature_base= feature_base,
                                                            create_summary= create_summary)
@@ -154,12 +155,12 @@ class DeepCascade(object):
         with tf.name_scope("resuts"):
             self.predictor = output_image
     
-    def __get_cost(self, output_image, regulizer=0):
+    def __get_cost(self, output_image, regulizer=1):
         with tf.name_scope("cost"):
             loss = tf.losses.mean_squared_error(self.y, output_image, reduction=tf.losses.Reduction.SUM_BY_NONZERO_WEIGHTS)
             if regulizer !=0:
                 regularizers = sum([tf.nn.l2_loss(variable) for variable in self.variables])
-                loss += regulizer*regularizers
+                loss += 1e-6*regulizer*regularizers
         return loss
     
     def predict(self, model_path, test_image):
