@@ -9,7 +9,7 @@ import logging
 import os
 import shutil
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
