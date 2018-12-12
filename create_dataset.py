@@ -77,19 +77,23 @@ def augment_data(image):
     images.append(np.flip(image, axis=1))    
     return images
 
-def process_save_mat_data(images, output_folder, strip_width=4, subsample_images=False):
+def process_save_mat_data(images, output_folder, strip_width=4, subsample_images=False, augment=True):
     if subsample_images:
         images = subsample_images(images)
+        mask = get_opt_mask()
+    else:
+        mask = get_opt_mask(1)
     
     n_images, N, M = images.shape 
     if os.path.exists(output_folder):
         shutil.rmtree(output_folder, ignore_errors=True)    
     os.mkdir(output_folder)
-    mask = get_opt_mask(1)
+    
+    image_getter = augment_data if augment else lambda im : [im]
     
     for it in range(n_images):
         print("Generating data for image: {nbr}, at path: {output_folder}".format(nbr=it,output_folder=output_folder))        
-        for aug_type , im in enumerate(augment_data(images[it, :, :])):
+        for aug_type , im in enumerate(image_getter(images[it, :, :])):
             output_image = np.copy(im)
             input_image = create_input_image(output_image, mask)
             
@@ -109,4 +113,4 @@ if __name__ == "__main__":
     n_train = int(TRAIN_SPLIT*data_net.shape[0])
     
     process_save_mat_data(data_net[:n_train], './data/train')
-    process_save_mat_data(data_net[n_train:], './data/test')
+    process_save_mat_data(data_net[n_train:], './data/test', augment=False)
