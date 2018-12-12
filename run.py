@@ -13,8 +13,7 @@ u_net = DeepCascade(x_channels=2, layers=3, ncascade=4, mask_in=opt_mask, featur
 trainer = Trainer(u_net, batch_size=15, validation_batch_size=50)
 trainer.train(data_provider_train.get_images_iter,
               data_provider_test.get_sample_images,
-              'output_deep_cascade',
-              0.8,
+              'output_deep_cascade_nc4_nlayers3',
               N_EPOCHS,
               10,
-              prediction_path='prediction_deep_cascade')
+              prediction_path='prediction_deep_cascade_nc4_nlayers3')

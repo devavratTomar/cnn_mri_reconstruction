@@ -138,8 +138,8 @@ class DeepCascade(object):
             # Restore model weights from previously saved model
             self.restore(sess, model_path)
             
-            y_dummy = np.empty((test_image.shape[0], test_image.shape[1], test_image.shape[2], self.y_channels))
-            prediction = sess.run(self.predictor, feed_dict={self.x: test_image, self.y: y_dummy, self.keep_prob: 1.0})
+            y_dummy = np.empty((test_image.shape[0], test_image.shape[1], test_image.shape[2], test_image.shape[3]))
+            prediction = sess.run(self.predictor, feed_dict={self.x: test_image, self.y: y_dummy})
             
         return prediction
     
@@ -254,7 +254,6 @@ class Trainer(object):
     
     def train(self, data_provider_train, data_provider_validation,
               output_path,
-              keep_prob,
               epochs=10,
               display_step=1,
               restore=False,
