@@ -10,7 +10,7 @@ opt_mask = get_opt_mask(subsample=1)
 
 u_net = DeepCascade(x_channels=2, layers=3, ncascade=4, mask_in=opt_mask, features=64, filter_size=3)
 
-trainer = Trainer(u_net, batch_size=15, validation_batch_size=50)
+trainer = Trainer(u_net, batch_size=15, validation_batch_size=20)
 trainer.train(data_provider_train.get_images_iter,
               data_provider_test.get_sample_images,
               'output_deep_cascade_nc4_nlayers3',
