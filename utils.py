@@ -105,6 +105,7 @@ def save_predictions(input_image, ground_truth, prediction, masks, folder):
 #        io.imsave(os.path.join(folder, str(image_iter) + '_actual_' + '.png'), img_ac)
                 
 def save_predictions_metric(input_image, ground_truth, prediction, mask, folder):
+    metrics_avg = np.zeros(5)
     for image_iter in range(ground_truth.shape[0]):
         im = input_image[image_iter]
         gt = ground_truth[image_iter]
@@ -119,6 +120,7 @@ def save_predictions_metric(input_image, ground_truth, prediction, mask, folder)
                               get_abs_complex(mask)), axis=1)
 
         metrics = get_error_metrics(gt_cmplx, pd_cmplx)
+        metrics_avg = metrics_avg + metrics
         metric_str = "SSIM: {:.3f}, SNR: {:.1f}, PSNR: {:.2f}, l2-error: {:.3f}, l1-error: {:.3f}\n".format(metrics[0],\
                      metrics[1],
                      metrics[2],
@@ -129,6 +131,8 @@ def save_predictions_metric(input_image, ground_truth, prediction, mask, folder)
         
         img = np.clip(img, 0, 1)
         io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)
+    
+    return metrics_avg/ground_truth.shape[0]
         
 def get_error_metrics(f, I):
     """
@@ -142,7 +146,6 @@ def get_error_metrics(f, I):
     f = np.abs(f) 
     I = np.abs(I)
     
-    # TODO(mfsahin): double check this metrics
     l2_error = np.linalg.norm(f - I, 'fro')
     psnr = 20*np.log10(max(f.flatten())*np.sqrt(N)/np.linalg.norm(I - f, 'fro'))
     snr = 20*np.log10(np.linalg.norm(f.flatten())/np.linalg.norm(I - f, 'fro'))

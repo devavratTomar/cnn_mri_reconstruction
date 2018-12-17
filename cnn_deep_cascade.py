@@ -181,7 +181,14 @@ class Trainer(object):
         self.batch_size = batch_size
         self.validation_batch_size = validation_batch_size
         self.create_train_summary = create_train_summary
-    
+        
+        # Tensorboard summary
+        self.psnr = tf.Variable(0)
+        self.ssim = tf.Variable(0)
+        self.snr = tf.Variable(0)
+        self.l2_error = tf.Variable(0)
+        self.l1_error = tf.Variable(0)
+        
     def __get_optimizer(self, global_step):
         # we choose adam optimezer for this problem.
         learning_rate = 0.0001
@@ -194,14 +201,20 @@ class Trainer(object):
     
     def __initialize(self, output_path, restore, prediction_path):
         global_step = tf.Variable(0, name="global_step")
-            
-        tf.summary.scalar("loss", self.net.cost)
         
         self.optimizer = self.__get_optimizer(global_step)
-        tf.summary.scalar("learning_rate", self.learning_rate_node)
+        train_summary = [tf.summary.scalar("loss", self.net.cost),
+                         tf.summary.scalar("learning_rate", self.learning_rate_node)]
         
+        val_summary = [tf.summary.scalar("psnr", self.psnr),
+                       tf.summary.scalar("ssim", self.ssim),
+                       tf.summary.scalar("snr", self.snr),
+                       tf.summary.scalar("l2_error", self.l2_error),
+                       tf.summary.scalar("l1_error", self.l1_error)]
         
-        self.summary_all = tf.summary.merge_all()
+        self.summary_train = tf.summary.merge(train_summary)
+        self.summary_val   = tf.summary.merge(val_summary)
+        
         init = tf.global_variables_initializer()
         
         prediction_path_abs = os.path.abspath(prediction_path)
@@ -224,9 +237,8 @@ class Trainer(object):
             
         return init
     
-    def store_prediction(self, sess, batch_x, batch_y, name):
+    def store_prediction(self, sess, summary_writer, step, batch_x, batch_y, name):
         prediction, loss = sess.run((self.net.predictor, self.net.cost), feed_dict= {self.net.x: batch_x, self.net.y: batch_y})
-        
         logging.info("Validaiton loss = {:.4f}".format(loss))
         
         prediction_folder = os.path.join(self.prediction_path, name)
@@ -235,12 +247,21 @@ class Trainer(object):
             shutil.rmtree(prediction_folder, ignore_errors=True)
             
         os.mkdir(prediction_folder)
-        utils.save_predictions_metric(batch_x, batch_y, prediction, self.net.mask[0], prediction_folder)
+        metrics_val = utils.save_predictions_metric(batch_x, batch_y, prediction, self.net.mask[0], prediction_folder)
+        sess.run((self.ssim.assign(metrics_val[0]),
+                  self.snr.assign(metrics_val[1]),
+                  self.psnr.assign(metrics_val[2]),
+                  self.l2_error.assign(metrics_val[3]),
+                  self.l1_error.assign(metrics_val[4])))
+        
+        summary_str = sess.run(self.summary_val)
+        summary_writer.add_summary(summary_str, step)
+        summary_writer.flush()
         
     
     def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
         # Calculate batch loss and accuracy
-        summary_str, loss = sess.run((self.summary_all, self.net.cost),
+        summary_str, loss = sess.run((self.summary_train, self.net.cost),
                                      feed_dict={self.net.x: batch_x, self.net.y: batch_y})
         
         summary_writer.add_summary(summary_str, step)
@@ -286,14 +307,14 @@ class Trainer(object):
                 ckpt = tf.train.get_checkpoint_state(output_path)
                 if ckpt and ckpt.model_checkpoint_path:
                     self.net.restore(sess, ckpt.model_checkpoint_path)
-                    
-            test_x, test_y = data_provider_validation(self.validation_batch_size)
-            self.store_prediction(sess, test_x, test_y, "_init")
             
             summary_writer = tf.summary.FileWriter(output_path, graph=sess.graph)
-            logging.info("Training Started")
-            
+            logging.info("Training Started") 
             step_counter = 0
+            
+            test_x, test_y = data_provider_validation(self.validation_batch_size)
+            self.store_prediction(sess, summary_writer, step_counter, test_x, test_y, "_init")
+            
             for epoch in range(epochs):
                 print(epoch)
                 for step, (batch_x, batch_y) in enumerate(data_provider_train(self.batch_size)):
@@ -305,7 +326,7 @@ class Trainer(object):
                     step_counter +=1
                         
                 self.output_epoch_stats(epoch, loss, lr)
-                self.store_prediction(sess, test_x, test_y, "epoch_{}".format(epoch))
+                self.store_prediction(sess, summary_writer, step_counter, test_x, test_y, "epoch_{}".format(epoch))
                 save_path = self.net.save(sess, save_path)
             
             summary_writer.close()
