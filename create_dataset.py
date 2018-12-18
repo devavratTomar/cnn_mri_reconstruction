@@ -8,7 +8,9 @@ import matplotlib.pyplot as plt
 
 MAX_VALUE = 255.
 TRAIN_SPLIT = 0.8
-OPT_MASK_PATH = './masks/mask_ULTIMATE_NN.mat'
+# OPT_MASK_PATH = './masks/mask_ULTIMATE_NN.mat'
+OPT_MASK_PATH = './masks/mask_0p10.mat' 
+
 
 def subsample_images(images):
     image_sub = images[:, ::2, ::2]
