@@ -183,11 +183,11 @@ class Trainer(object):
         self.create_train_summary = create_train_summary
         
         # Tensorboard summary
-        self.psnr = tf.Variable(0)
-        self.ssim = tf.Variable(0)
-        self.snr = tf.Variable(0)
-        self.l2_error = tf.Variable(0)
-        self.l1_error = tf.Variable(0)
+        self.psnr     = tf.Variable(0., dtype="float")
+        self.ssim     = tf.Variable(0., dtype="float")
+        self.snr      = tf.Variable(0., dtype="float")
+        self.l2_error = tf.Variable(0., dtype="float")
+        self.l1_error = tf.Variable(0., dtype="float")
         
     def __get_optimizer(self, global_step):
         # we choose adam optimezer for this problem.

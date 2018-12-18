@@ -8,6 +8,8 @@ from skimage import io
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from skimage.measure import compare_ssim as ssim
+from skimage.morphology import convex_hull_image
+from skimage.filters import threshold_mean
 
 LAMBDA = 2
 
@@ -140,16 +142,35 @@ def get_error_metrics(f, I):
     param(f): original image
     param(I): Reconstructed image
     """
-    N = f.size
-    
     # convert the images into single precision
     f = np.abs(f) 
     I = np.abs(I)
     
-    l2_error = np.linalg.norm(f - I, 'fro')
-    psnr = 20*np.log10(max(f.flatten())*np.sqrt(N)/np.linalg.norm(I - f, 'fro'))
-    snr = 20*np.log10(np.linalg.norm(f.flatten())/np.linalg.norm(I - f, 'fro'))
-    l1_error = np.linalg.norm(f.flatten() - I.flatten(), 1)/np.linalg.norm(f.flatten(), 1)
-    ssim_ = ssim(f, I, data_range=max(I.flatten())-min(I.flatten()))
+    # compute convex hull for better metrics
+    roi = get_roi(f)
+    roi_index = np.where(roi == True)
+    
+    f_flatten = f[roi_index]
+    I_flatten = I[roi_index]
+    N = f_flatten.size
+    
+    l2_error = np.linalg.norm(f_flatten - I_flatten)
+    psnr = 20*np.log10(max(f_flatten)*np.sqrt(N)/np.linalg.norm(I_flatten - f_flatten))
+    snr = 20*np.log10(np.linalg.norm(f_flatten)/np.linalg.norm(I_flatten - f_flatten))
+    l1_error = np.linalg.norm(f_flatten - I_flatten, 1)/np.linalg.norm(f_flatten, 1)
+    ssim_ = ssim(f_flatten, I_flatten, data_range=max(I_flatten)-min(I_flatten))
 
     return np.array([ssim_, snr, psnr, l2_error, l1_error])
+    
+def get_roi(image_):
+    """
+    Returns the region of interest for calculating error metrics
+    param(image_): image
+    param(thresh): value for binary thresholding
+    """
+    thresh = threshold_mean(image_)
+    binary = (image_ > thresh)
+    chull = convex_hull_image(binary)
+    
+    return chull
+
