@@ -8,6 +8,8 @@ from skimage import io
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from skimage.measure import compare_ssim as ssim
+from skimage.morphology import convex_hull_image
+from skimage.filters import threshold_mean
 
 LAMBDA = 2
 
@@ -153,3 +155,16 @@ def get_error_metrics(f, I):
     ssim_ = ssim(f, I, data_range=max(I.flatten())-min(I.flatten()))
 
     return np.array([ssim_, snr, psnr, l2_error, l1_error])
+    
+def get_roi(image_, thresh):
+    """
+    Returns the region of interest for calculating error metrics
+    param(image_): image
+    param(thresh): value for binary thresholding
+    """
+    thresh = threshold_mean(image_)
+    binary = (image_ > thresh)
+    chull = convex_hull_image(binary)
+    
+    return chull
+
