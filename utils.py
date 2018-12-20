@@ -6,7 +6,6 @@ import os
 import numpy as np
 from skimage import io
 import tensorflow as tf
-import matplotlib.pyplot as plt
 from skimage.measure import compare_ssim as ssim
 from skimage.morphology import convex_hull_image
 from skimage.filters import threshold_mean
@@ -14,33 +13,51 @@ from skimage.filters import threshold_mean
 LAMBDA = 2
 
 def get_variable(shape, name):
+    """
+    Returns a varibale with given name and shape.
+    """
     return tf.get_variable(name=name,
                            shape=shape,
                            initializer=tf.contrib.layers.xavier_initializer(),
                            regularizer=tf.contrib.layers.l2_regularizer(scale=1.))
     
 def padding_circular(x, padding):
+    """
+    Appends circular padding to image so that after convolution, image size is unchanged"
+    """
     out = tf.concat([x[:, -padding:, :, :], x, x[:, 0:padding, :, :]], axis=1)
     out = tf.concat([out[:, :, -padding:, :], out, out[:, :, 0:padding, :]], axis=2)  
     return out
 
 def weight_variable(shape, name):
+    """
+    Returns Convolution Filter.
+    """
     return tf.get_variable(name=name,
                            shape=shape,
                            initializer=tf.contrib.layers.xavier_initializer(uniform=False),
                            regularizer=tf.contrib.layers.l2_regularizer(scale=1.))
 
 def weight_variable_devonc(shape, name):
+    """
+    Returns Deconvolution Filter. (Used in UNet Architecture)
+    """
     return tf.get_variable(name=name,
                            shape=shape,
                            initializer=tf.contrib.layers.xavier_initializer(uniform=False),
                            regularizer=tf.contrib.layers.l2_regularizer(scale=1.))
 
 def bias_variable(shape, name):
+    """
+    Returns bias.
+    """
     initial = tf.constant(0.0, shape=shape)
     return tf.get_variable(name, initializer=initial)
 
 def conv2d(x, W, b, stride=1, add_custom_pad=True):
+    """
+    Performs convolution on x using filter W and bias b
+    """
     with tf.name_scope("conv2d"):
         padding = ((tf.shape(W)[0] - 1)//2)
         if not add_custom_pad:
@@ -53,12 +70,18 @@ def conv2d(x, W, b, stride=1, add_custom_pad=True):
         return conv_2d_b
 
 def deconv2d(x, W,stride):
+    """
+    Perfoms deconvolution on x using filter W. (Unet Architecture)
+    """
     with tf.name_scope("deconv2d"):
         x_shape = tf.shape(x)
         output_shape = tf.stack([x_shape[0], x_shape[1]*2, x_shape[2]*2, x_shape[3]//2])
         return tf.nn.conv2d_transpose(x, W, output_shape, strides=[1, stride, stride, 1], padding='SAME', name="conv2d_transpose")
 
 def max_pool(x,n):
+    """
+    Performs max pooling using window of size n.
+    """
     return tf.nn.max_pool(x, ksize=[1, n, n, 1], strides=[1, n, n, 1], padding='VALID')
 
 def get_image_summary(img, idx=0):
@@ -80,33 +103,21 @@ def get_image_summary(img, idx=0):
 
 
 def get_abs(img):
+    """
+    Returns norm of the image
+    """
     return np.sqrt(img[:,:,0]**2 + img[:,:,1]**2)
 
 def get_abs_complex(img):
+    """
+    Returns magnitude of complex image.
+    """
     return np.abs(img)
 
-def get_actual_img(ground_truth, prediction, mask):
-    ac_ground_truth_fft = np.fft.fftshift(np.fft.fft2(ground_truth[:,:,0] + 1j*ground_truth[:,:,1]))
-    ac_ground_truth_fft = ac_ground_truth_fft/(LAMBDA*mask + np.ones_like(mask))
-    
-    ac_prediction_fft = np.fft.fftshift(np.fft.fft2(prediction[:,:,0] + 1j*prediction[:,:,1]))
-    ac_prediction_fft = ac_prediction_fft/(LAMBDA*mask + np.ones_like(mask))
-    
-    return get_abs_complex(np.fft.ifft2(np.fft.fftshift(ac_ground_truth_fft))), get_abs_complex(np.fft.ifft2(np.fft.fftshift(ac_prediction_fft)))
-
-def save_predictions(input_image, ground_truth, prediction, masks, folder):
-    for image_iter in range(input_image.shape[0]):
-        img = np.concatenate((get_abs(input_image[image_iter]),
-                              get_abs(ground_truth[image_iter]),
-                              get_abs(prediction[image_iter])), axis=1)
-        img = np.clip(img, 0, 1)
-        io.imsave(os.path.join(folder, str(image_iter) + '.png'), img)
-        
-#        img_ac = np.concatenate(get_actual_img(ground_truth[image_iter], prediction[image_iter], masks[image_iter]), axis=1)
-#        img_ac = np.clip(img_ac, 0, 1)
-#        io.imsave(os.path.join(folder, str(image_iter) + '_actual_' + '.png'), img_ac)
-                
 def save_predictions_metric(input_image, ground_truth, prediction, mask, folder):
+    """
+    Save the predictions and metrics
+    """
     metrics_avg = np.zeros(5)
     for image_iter in range(ground_truth.shape[0]):
         im = input_image[image_iter]

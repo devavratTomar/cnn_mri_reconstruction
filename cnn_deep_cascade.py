@@ -9,15 +9,12 @@ import logging
 import os
 import shutil
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
 def create_conv_network(x, channels_x,
                         mask, cascade_n=5, layers=3, features=64, filter_size=3,
                         lambda_ = 3.,
-                        reuse = False,
-                        create_summary=True):
+                        reuse = False):
     """
     :param x: input_tensor, shape should be [None, n, m, channels_x]
     :param channels_x: number of channels in the input image. For Mri, input has 2 channels.
@@ -26,7 +23,6 @@ def create_conv_network(x, channels_x,
     :param layers: number of layers in deep cascade architecture.
     :param feature_base: Neurons in first layer of cnn. Next layers have twice the number of neurons in previous layers.
     :param filter_size: size of convolution filter
-    :create_summary: Creates Tensorboard summary if True
     """
     
     logging.info("Layers: {layers}, features: {features}, filter size {fill_size}x{fill_size},"
@@ -100,23 +96,27 @@ class DeepCascade(object):
     Implementation of Deep Cascade.
     
     :param x_channels: number of channels in input image
-    :param y_channels: number of channels in output image
+    :param layers: number of layers in each cascade
+    :param ncascade: number of cascades
+    :param mask_in: undersampling mask
+    :param features: number of features in each hidden layers
+    :param filter_size: size of the convolution filter
     """
     
-    def __init__(self, x_channels, layers, ncascade, mask_in, features, filter_size, create_summary=True):
+    def __init__(self, x_channels, layers, ncascade, mask_in, features, filter_size):
         tf.reset_default_graph()
         
         self.x = tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
         self.y = tf.placeholder("float", shape=[None, None, None, x_channels], name="y")
         self.mask = mask_in.astype(np.float32)[np.newaxis, :, :]
+        
         output_image = create_conv_network(x= self.x,
                                            channels_x= x_channels,
                                            mask=self.mask,
                                            cascade_n=ncascade,
                                            layers=layers,
                                            features=features,
-                                           filter_size=filter_size,
-                                           create_summary= create_summary)
+                                           filter_size=filter_size)
         
         self.cost = self.__get_cost(output_image)        
         
@@ -130,6 +130,12 @@ class DeepCascade(object):
         return loss + 1e-6*sum(reg_losses)
     
     def predict(self, model_path, test_image):
+        """
+        Performs prediction on given test image and DeepCascade model. Returns fully sampled MRI prediction.
+        
+        :param model_path: path of the neural network model to load
+        :param test_image: test images of shape [batch_size, None, None, 2]
+        """
         init = tf.global_variables_initializer()
         
         with tf.Session() as sess:
@@ -173,14 +179,12 @@ class Trainer(object):
     :param net: deep cascade to train
     :param batch_size: size of training batch
     :param validation_batch_size: size of validation batch
-    :param create_train_summary: add training summaries if True (e.g. gradients)
     """
     
-    def __init__(self, net, batch_size=1, validation_batch_size=1, create_train_summary=True):
+    def __init__(self, net, batch_size=1, validation_batch_size=1):
         self.net = net
         self.batch_size = batch_size
         self.validation_batch_size = validation_batch_size
-        self.create_train_summary = create_train_summary
         
         # Tensorboard summary
         self.psnr     = tf.Variable(0., dtype="float")
@@ -200,6 +204,15 @@ class Trainer(object):
         return optimizer
     
     def __initialize(self, output_path, restore, prediction_path):
+        """
+        Performs initialization of computation graph and tensorboard summary.
+        
+        :param output_path: The path where trained model will be saved at every checkpoint
+        :param restore: If False, delete old path and create new model (should be used when training from scratch).
+                        If True, we resotre the model. So don't delete the model at output_path
+                        
+        :param prediction_path: Path where prediction on test data will be saved after every epoch.
+        """
         global_step = tf.Variable(0, name="global_step")
         
         self.optimizer = self.__get_optimizer(global_step)
@@ -238,6 +251,10 @@ class Trainer(object):
         return init
     
     def store_prediction(self, sess, summary_writer, step, batch_x, batch_y, name):
+        """
+        Stores prediction images and metrics to tensorboard.
+        """
+        
         prediction, loss = sess.run((self.net.predictor, self.net.cost), feed_dict= {self.net.x: batch_x, self.net.y: batch_y})
         logging.info("Validaiton loss = {:.4f}".format(loss))
         
@@ -260,6 +277,10 @@ class Trainer(object):
         
     
     def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
+        """
+        Logs the all stats for current mini-batch to terminal and tensorboard.
+        """
+        
         # Calculate batch loss and accuracy
         summary_str, loss = sess.run((self.summary_train, self.net.cost),
                                      feed_dict={self.net.x: batch_x, self.net.y: batch_y})
@@ -270,6 +291,9 @@ class Trainer(object):
         
         
     def output_epoch_stats(self, epoch, loss, lr):
+        """
+        Logs epoch stats to the terminal.
+        """
         logging.info(
             "Epoch {:}, loss: {:.16f}, learning rate: {:.8f}".format(epoch, loss, lr))
     
@@ -283,8 +307,8 @@ class Trainer(object):
         """
         Start training the network
         
-        :param data_provider_train: callable returning training data
-        :param data_provider_validation: callable returning validation data
+        :param data_provider_train: callback function returning training data
+        :param data_provider_validation: callback function returning validation data
         :param output_path: path where to store checkpoints
         :param epochs: number of epochs
         :param display_step: number of steps till outputting stats

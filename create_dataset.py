@@ -8,9 +8,6 @@ import matplotlib.pyplot as plt
 
 MAX_VALUE = 255.
 TRAIN_SPLIT = 0.8
-# OPT_MASK_PATH = './masks/mask_ULTIMATE_NN.mat'
-OPT_MASK_PATH = './masks/mask_0p10.mat' 
-
 
 def subsample_images(images):
     image_sub = images[:, ::2, ::2]
@@ -27,8 +24,8 @@ def get_uniform_mask(N):
     
     return mask
 
-def get_opt_mask(subsample=2):
-    mask = loadmat(OPT_MASK_PATH)['mask']
+def get_opt_mask(subsample=2, mask_path='./masks/mask_ULTIMATE_NN.mat'):
+    mask = loadmat(mask_path)['mask']
     mask = mask[::subsample, ::subsample]
     return np.fft.fftshift(mask)
     
@@ -106,8 +103,8 @@ def process_save_mat_data(images, output_folder, strip_width=4, subsample_images
             save_data_image[:,:,3] = np.imag(output_image)
             save_data_image[:,:,4] = mask
             np.save(output_folder + '/' + 'Mri_' + str(it) + '_aug_'+ str(aug_type), save_data_image)
-                
-if __name__ == "__main__":
+
+def run_data_augmentation():
     data_1 = load_mat_data('./data_original/train.mat')
     data_2 = load_mat_data('./data_original/test.mat')
     data_net = np.concatenate((data_1, data_2), axis=0)
@@ -116,3 +113,6 @@ if __name__ == "__main__":
     
     process_save_mat_data(data_net[:n_train], './data/train')
     process_save_mat_data(data_net[n_train:], './data/test', augment=False)
+
+if __name__ == "__main__":
+    run_data_augmentation()
