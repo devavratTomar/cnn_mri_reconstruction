@@ -80,5 +80,5 @@ if __name__ == "__main__":
                   output_path,
                   N_EPOCHS,
                   10,
-                  prediction_path)
+                  prediction_path=prediction_path)
     
