@@ -2,7 +2,7 @@
 Explore Deep Learning Architectures for MRI image reconstruction from highly undersampled k-space data using different undersampling masks.
 
 # Dataset
-The datasel we used for this project is confidential. So, please use the data only for evaluation of this project. For more information please contact LIONS laboratory (Gözcü Baran <baran.goezcue@epfl.ch>)
+The dataset we used for this project is confidential. So, please use the data only for evaluation of this project. For more information please contact LIONS laboratory (Gözcü Baran <baran.goezcue@epfl.ch>)
 
 # Report
 Please find pdf report on the work in `Report` folder.
