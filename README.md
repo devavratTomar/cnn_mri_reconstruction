@@ -39,3 +39,5 @@ This will train the model and at every epoch, the prediction on `test data` is s
 To visualize the training and computation graph, you can run tensorboard by the following command.  
 `tensorboard --logdir="model_output_path"`, where `model_output_path` is the folder where tensorboard `events` are saved. For default setting, use `model_output_path` as `output_deep_cascade_nc4_nlayers3`.  
 
+![alt](Readme_images/tensor_1.PNG)
+![alt](Readme_images/tensor_2.PNG)
