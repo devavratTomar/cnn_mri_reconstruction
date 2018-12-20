@@ -8,3 +8,4 @@
 \.idea/
 data_processor.pyc
 cnn_deep_cascade.pyc
+metrics.txt
