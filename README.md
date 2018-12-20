@@ -8,7 +8,7 @@ The dataset we used for this project is confidential. So, please use the data on
 Please find pdf report on the work in `Report` folder.
 
 # Running the code
-## Discription of files
+## Description of files
 1. `cnn_deep_cascade.py` contains modules for creating DeepCascade CNN Architecture and training the model.
 2. `create_dataset.py` contains modules for data augmentation and image normalization to values between -1 and 1.
 3. `data_processor.py` contains modules for loading data in batches while training the model so that only one batch is loaded into memory for a given training iteration.
