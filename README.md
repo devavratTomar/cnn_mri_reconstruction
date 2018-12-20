@@ -21,7 +21,7 @@ Please find pdf report on the work in `Report` folder.
 2. `Skimage` for saving and displaying images
 
 ## Training model
-For training the model, please use NVIDIA GPU with compute capacity greater or equal to 3.5. For multiple GPUs, you can set visible `CUDA` devices for training by setting environment varialbe `CUDA_VISIBLE_DEVICES` as `0` or `1`, where `0`, `1` is device id.
+For training the model, please use NVIDIA GPU with compute capacity greater or equal to 3.5. For multiple GPUs, you can set visible `CUDA` devices for training by setting environment variable `CUDA_VISIBLE_DEVICES` as `0` or `1`, where `0`, `1` is device id.
 
 To train the model with default DeepCascade architecture, run the following command
 
