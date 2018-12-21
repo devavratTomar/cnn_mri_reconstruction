@@ -10,6 +10,33 @@ import os
 import shutil
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
+IMAGE_SIZE = 256
+
+def get_mask(mu, cov):
+    # given parameters of probability distribution, sample mask
+    m_index = np.random.multivariate_normal(mu, cov).astype(int)
+    
+    # clip out of bound index
+    upper = m_index > IMAGE_SIZE - 1
+    lower = m_index < 0
+    
+    m_index[upper] = int(IMAGE_SIZE - 1)
+    m_index[lower] = 0
+    
+    mask = np.zeros([1, IMAGE_SIZE, IMAGE_SIZE])
+    mask[0, m_index, :] = 1.0
+    
+    return mask, m_index
+
+def mask_gradient_mu(loss, m_index, mu, cov):
+    cov_inv = np.linalg.inv(cov)
+    return loss*cov_inv.dot(m_index - mu)
+
+def mask_gradient_cov(loss, m_index, mu, cov):
+    cov_inv = np.linalg.inv(cov)
+    m_index_diff = (m_index - mu)[:, np.newaxis]
+    
+    return -0.5*loss*cov_inv.dot(np.eye(cov.shape[0]) - (m_index_diff.dot(m_index_diff.T)).dot(cov_inv))
 
 def create_conv_network(x, channels_x,
                         mask, cascade_n=5, layers=3, features=64, filter_size=3,
@@ -103,14 +130,20 @@ class DeepCascade(object):
     :param filter_size: size of the convolution filter
     """
     
-    def __init__(self, x_channels, layers, ncascade, mask_in, features, filter_size):
+    def __init__(self, x_channels, layers, ncascade, features, filter_size):
         tf.reset_default_graph()
         
-        self.x = tf.placeholder("float", shape=[None, None, None, x_channels], name="x")
-        self.y = tf.placeholder("float", shape=[None, None, None, x_channels], name="y")
-        self.mask = mask_in.astype(np.float32)[np.newaxis, :, :]
+        self.ground_truth = tf.placeholder("float", shape=[None, None, None, x_channels], name="ground_truth")
+        self.mask = tf.placeholder("float", shape=[1, None, None], name="mask")
         
-        output_image = create_conv_network(x= self.x,
+        ground_truth_complex = tf.complex(self.ground_truth[:, :, :, 0], self.ground_truth[:, :, :, 1])
+        ground_truth_fft = tf.spectral.fft2d(ground_truth_complex)
+        
+        x_sub_complex = tf.reshape(tf.spectral.ifft2d(tf.multiply(ground_truth_fft, tf.complex(self.mask, 0.))), [-1, IMAGE_SIZE, IMAGE_SIZE, 1])
+        
+        self.x_sub = tf.concat([tf.real(x_sub_complex), tf.imag(x_sub_complex)], axis=3)
+        
+        output_image = create_conv_network(x= self.x_sub,
                                            channels_x= x_channels,
                                            mask=self.mask,
                                            cascade_n=ncascade,
@@ -118,18 +151,18 @@ class DeepCascade(object):
                                            features=features,
                                            filter_size=filter_size)
         
-        self.cost = self.__get_cost(output_image)        
+        self.cost = self.__get_cost(output_image)
         
         with tf.name_scope("resuts"):
             self.predictor = output_image
     
     def __get_cost(self, output_image):
         with tf.name_scope("cost"):
-            loss = tf.losses.mean_squared_error(self.y, output_image)
+            loss = tf.losses.mean_squared_error(self.ground_truth, output_image)
             reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, scope="DeepCascade")
         return loss + 1e-6*sum(reg_losses)
     
-    def predict(self, model_path, test_image):
+    def predict(self, model_path, test_image, mask):
         """
         Performs prediction on given test image and DeepCascade model. Returns fully sampled MRI prediction.
         
@@ -143,9 +176,7 @@ class DeepCascade(object):
             sess.run(init)
             # Restore model weights from previously saved model
             self.restore(sess, model_path)
-            
-            y_dummy = np.empty((test_image.shape[0], test_image.shape[1], test_image.shape[2], test_image.shape[3]))
-            prediction = sess.run(self.predictor, feed_dict={self.x: test_image, self.y: y_dummy})
+            prediction = sess.run(self.predictor, feed_dict={self.ground_truth: test_image, self.mask: mask})
             
         return prediction
     
@@ -250,12 +281,12 @@ class Trainer(object):
             
         return init
     
-    def store_prediction(self, sess, summary_writer, step, batch_x, batch_y, name):
+    def store_prediction(self, sess, summary_writer, step, batch_x, mask, name):
         """
         Stores prediction images and metrics to tensorboard.
         """
         
-        prediction, loss = sess.run((self.net.predictor, self.net.cost), feed_dict= {self.net.x: batch_x, self.net.y: batch_y})
+        sub_sampled_image, prediction, loss = sess.run((self.net.x_sub, self.net.predictor, self.net.cost), feed_dict= {self.net.ground_truth: batch_x, self.net.mask: mask})
         logging.info("Validaiton loss = {:.4f}".format(loss))
         
         prediction_folder = os.path.join(self.prediction_path, name)
@@ -264,7 +295,7 @@ class Trainer(object):
             shutil.rmtree(prediction_folder, ignore_errors=True)
             
         os.mkdir(prediction_folder)
-        metrics_val = utils.save_predictions_metric(batch_x, batch_y, prediction, self.net.mask[0], prediction_folder)
+        metrics_val = utils.save_predictions_metric(batch_x, sub_sampled_image, prediction, mask[0], prediction_folder)
         sess.run((self.ssim.assign(metrics_val[0]),
                   self.snr.assign(metrics_val[1]),
                   self.psnr.assign(metrics_val[2]),
@@ -276,15 +307,14 @@ class Trainer(object):
         summary_writer.flush()
         
     
-    def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
+    def output_minibatch_stats(self, sess, summary_writer, step, batch_x, mask):
         """
         Logs the all stats for current mini-batch to terminal and tensorboard.
         """
         
         # Calculate batch loss and accuracy
         summary_str, loss = sess.run((self.summary_train, self.net.cost),
-                                     feed_dict={self.net.x: batch_x, self.net.y: batch_y})
-        
+                                     feed_dict={self.net.ground_truth: batch_x, self.net.mask: mask})
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
         logging.info("Iter {:}, Minibatch Loss= {:.16f}".format(step, loss))
@@ -303,7 +333,8 @@ class Trainer(object):
               display_step=1,
               restore=False,
               write_graph=True,
-              prediction_path='prediction'):
+              prediction_path='prediction',
+              sampling_rate=0.25):
         """
         Start training the network
         
@@ -321,6 +352,13 @@ class Trainer(object):
         save_path = os.path.join(output_path, "model.ckpt")
         init = self.__initialize(output_path, restore, prediction_path)
         
+        # Initial mask is uniformly distributed with cov as diagnol
+        mask_learning_rate = 1e-4
+        
+        k = int(sampling_rate*IMAGE_SIZE) - 1
+        self.mu = np.arange(0, 255 + 255/k, 255/k)
+        self.cov = 5.0*np.eye(k+1)
+        
         with tf.Session() as sess:
             if write_graph:
                 tf.train.write_graph(sess.graph_def, output_path, "graph.pb")
@@ -336,23 +374,34 @@ class Trainer(object):
             logging.info("Training Started") 
             step_counter = 0
             
-            test_x, test_y = data_provider_validation(self.validation_batch_size)
-            self.store_prediction(sess, summary_writer, step_counter, test_x, test_y, "_init")
+            test_x = data_provider_validation(self.validation_batch_size)
+            self.store_prediction(sess, summary_writer, step_counter, test_x, get_mask(self.mu, self.cov)[0], "_init")
             
             for epoch in range(epochs):
                 print(epoch)
-                for step, (batch_x, batch_y) in enumerate(data_provider_train(self.batch_size)):
+                for step, batch_x in enumerate(data_provider_train(self.batch_size)):
+                    mask, m_index = get_mask(self.mu, self.cov)
                     _, loss, lr = sess.run((self.optimizer, self.net.cost, self.learning_rate_node),
-                                           feed_dict= {self.net.x: batch_x, self.net.y: batch_y})
+                                           feed_dict= {self.net.ground_truth: batch_x, self.net.mask: mask})
+                    
+                    # update mu and cov with respect to their gradients
+                    # Ensure that cov is positive definite (Todo)
+                    self.mu = self.mu - mask_learning_rate*mask_gradient_mu(loss, m_index, self.mu, self.cov)
+                    self.cov = self.cov - mask_learning_rate*mask_gradient_cov(loss, m_index, self.mu, self.cov)
                     
                     if step % display_step == 0:
-                        self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, batch_y)
+                        self.output_minibatch_stats(sess, summary_writer, step_counter, batch_x, mask)
+                        logging.info('mean:' self.mu)
                     step_counter +=1
                         
                 self.output_epoch_stats(epoch, loss, lr)
-                self.store_prediction(sess, summary_writer, step_counter, test_x, test_y, "epoch_{}".format(epoch))
+                self.store_prediction(sess, summary_writer, step_counter, test_x, mask, "epoch_{}".format(epoch))
                 save_path = self.net.save(sess, save_path)
             
             summary_writer.close()
+            
+        np.save('learned_mu', self.mu)
+        np.save('learned_cov', self.cov)
+        
         logging.info("Training Finished")
         return save_path

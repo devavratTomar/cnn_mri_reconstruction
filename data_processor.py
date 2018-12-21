@@ -38,7 +38,7 @@ class DataProvider(object):
             images_input.append(_data[:,:,[0,1]])
             images_output.append(_data[:,:,[2,3]])
             
-        return np.array(images_input), np.array(images_output)
+        return np.array(images_output)
     
     def get_images_iter(self, batch_size):
         """
@@ -57,7 +57,7 @@ class DataProvider(object):
                     _data = np.load(file_name)
                     images_input.append(_data[:,:,[0,1]])
                     images_output.append(_data[:,:,[2,3]])
-                yield np.array(images_input), np.array(images_output)
+                yield np.array(images_output)
                 
     def get_sample_images_with_mask(self, number_images):
         images_input = []
